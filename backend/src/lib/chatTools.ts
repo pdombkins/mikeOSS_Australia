@@ -31,6 +31,20 @@ import {
   type CourtlistenerToolEvent,
 } from "./legalSourcesTools/courtlistenerTools";
 import {
+  AUSTLII_SYSTEM_PROMPT,
+  AUSTLII_TOOL_NAMES,
+  AUSTLII_TOOLS,
+  type AustliiToolEvent,
+  type AustliiCaseCitationEvent,
+} from "./legalSourcesTools/austliiTools";
+import {
+  searchAustliiCases,
+  searchAustliiLegislation,
+  validateAustliiCitation,
+  fetchAustliiDocument,
+  formatAGLC4Citation,
+} from "./austlii";
+import {
   buildUserMcpTools,
   executeMcpToolCall,
   type McpToolEvent,
@@ -171,7 +185,7 @@ GENERAL GUIDANCE:
  */
 export function buildSystemPrompt(includeResearchTools = true): string {
   return includeResearchTools
-    ? `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${COURTLISTENER_SYSTEM_PROMPT}\n${SYSTEM_PROMPT_AFTER_RESEARCH}`
+    ? `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${COURTLISTENER_SYSTEM_PROMPT}\n\n${AUSTLII_SYSTEM_PROMPT}\n${SYSTEM_PROMPT_AFTER_RESEARCH}`
     : `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${SYSTEM_PROMPT_AFTER_RESEARCH}`;
 }
 
@@ -2307,6 +2321,8 @@ export async function runToolCalls(
   docsEdited: DocEditedResult[];
   courtlistenerEvents: CourtlistenerToolEvent[];
   caseCitationEvents: CaseCitationEvent[];
+  austliiEvents: AustliiToolEvent[];
+  auCaseCitationEvents: AustliiCaseCitationEvent[];
   mcpEvents: McpToolEvent[];
 }> {
   const toolResults: unknown[] = [];
@@ -2322,6 +2338,8 @@ export async function runToolCalls(
   const docsEdited: DocEditedResult[] = [];
   const courtlistenerEvents: CourtlistenerToolEvent[] = [];
   const caseCitationEvents: CaseCitationEvent[] = [];
+  const austliiEvents: AustliiToolEvent[] = [];
+  const auCaseCitationEvents: AustliiCaseCitationEvent[] = [];
   const mcpEvents: McpToolEvent[] = [];
   const courtState: CourtlistenerTurnState =
     courtlistenerState ??
@@ -3108,6 +3126,153 @@ export async function runToolCalls(
           }),
         });
       }
+
+    // ── AustLII (Australian law) tools ──────────────────────────────────────
+
+    } else if (tc.function.name === AUSTLII_TOOL_NAMES.searchCases) {
+      const { query, jurisdiction, limit, sortBy } = args as {
+        query?: string;
+        jurisdiction?: string;
+        limit?: number;
+        sortBy?: "auto" | "relevance" | "date";
+      };
+      const event: AustliiToolEvent = {
+        type: "austlii_search_cases",
+        query: query ?? "",
+        jurisdiction,
+        result_count: 0,
+      };
+      write(`data: ${JSON.stringify({ type: "austlii_search_cases_start", query })}\n\n`);
+      try {
+        const results = await searchAustliiCases({
+          query: query ?? "",
+          jurisdiction: jurisdiction as import("./austlii").Jurisdiction | undefined,
+          limit,
+          sortBy,
+        });
+        event.result_count = results.length;
+        write(`data: ${JSON.stringify({ type: "austlii_search_cases_result", query, result_count: results.length })}\n\n`);
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify({ query, result_count: results.length, results }),
+        });
+        for (const r of results) {
+          if (r.neutralCitation && r.url) {
+            const citEv: AustliiCaseCitationEvent = {
+              type: "au_case_citation",
+              caseName: r.title,
+              neutralCitation: r.neutralCitation,
+              reportedCitation: r.reportedCitation,
+              austliiUrl: r.url,
+            };
+            write(`data: ${JSON.stringify(citEv)}\n\n`);
+          }
+        }
+      } catch (err) {
+        event.error = err instanceof Error ? err.message : "AustLII search failed";
+        write(`data: ${JSON.stringify({ type: "austlii_search_cases_error", error: event.error })}\n\n`);
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify({ error: event.error }),
+        });
+      }
+
+    } else if (tc.function.name === AUSTLII_TOOL_NAMES.searchLegislation) {
+      const { query, jurisdiction, limit } = args as {
+        query?: string;
+        jurisdiction?: string;
+        limit?: number;
+      };
+      write(`data: ${JSON.stringify({ type: "austlii_search_legislation_start", query })}\n\n`);
+      try {
+        const results = await searchAustliiLegislation({
+          query: query ?? "",
+          jurisdiction: jurisdiction as import("./austlii").Jurisdiction | undefined,
+          limit,
+        });
+        write(`data: ${JSON.stringify({ type: "austlii_search_legislation_result", query, result_count: results.length })}\n\n`);
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify({ query, result_count: results.length, results }),
+        });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : "AustLII legislation search failed";
+        write(`data: ${JSON.stringify({ type: "austlii_search_legislation_error", error })}\n\n`);
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify({ error }),
+        });
+      }
+
+    } else if (tc.function.name === AUSTLII_TOOL_NAMES.validateCitation) {
+      const { citation } = args as { citation?: string };
+      write(`data: ${JSON.stringify({ type: "austlii_validate_citation_start", citation })}\n\n`);
+      try {
+        const result = await validateAustliiCitation(citation ?? "");
+        write(`data: ${JSON.stringify({ type: "austlii_validate_citation_result", citation, valid: result.valid })}\n\n`);
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify(result),
+        });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : "Citation validation failed";
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify({ valid: false, message: error }),
+        });
+      }
+
+    } else if (tc.function.name === AUSTLII_TOOL_NAMES.fetchDocument) {
+      const { url } = args as { url?: string };
+      write(`data: ${JSON.stringify({ type: "austlii_fetch_document_start", url })}\n\n`);
+      try {
+        const result = await fetchAustliiDocument(url ?? "");
+        write(`data: ${JSON.stringify({ type: "austlii_fetch_document_result", url, paragraph_count: result.paragraphs.length })}\n\n`);
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify({
+            url: result.url,
+            paragraph_count: result.paragraphs.length,
+            text: result.text.slice(0, 30_000),
+            paragraphs: result.paragraphs.slice(0, 200),
+          }),
+        });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : "Document fetch failed";
+        write(`data: ${JSON.stringify({ type: "austlii_fetch_document_error", url, error })}\n\n`);
+        toolResults.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: JSON.stringify({ error }),
+        });
+      }
+
+    } else if (tc.function.name === AUSTLII_TOOL_NAMES.formatCitation) {
+      const { caseName, neutralCitation, reportedCitation, pinpoint } = args as {
+        caseName?: string;
+        neutralCitation?: string;
+        reportedCitation?: string;
+        pinpoint?: string;
+      };
+      const citation = formatAGLC4Citation({
+        caseName: caseName ?? "",
+        neutralCitation,
+        reportedCitation,
+        pinpoint,
+      });
+      toolResults.push({
+        role: "tool",
+        tool_call_id: tc.id,
+        content: JSON.stringify({ citation }),
+      });
+
     } else if (tc.function.name === "edit_document" && docIndex) {
       const rawDocId = args.doc_id as string;
       const editsRaw = args.edits as unknown[] | undefined;
@@ -3658,6 +3823,8 @@ export async function runToolCalls(
     docsEdited,
     courtlistenerEvents,
     caseCitationEvents,
+    austliiEvents,
+    auCaseCitationEvents,
     mcpEvents,
   };
 }
@@ -3965,7 +4132,7 @@ export async function runLLMStream(params: {
     signal,
     projectId,
   } = params;
-  const researchTools = includeResearchTools ? COURTLISTENER_TOOLS : [];
+  const researchTools = includeResearchTools ? [...COURTLISTENER_TOOLS, ...AUSTLII_TOOLS] : [];
   const mcpTools = await buildUserMcpTools(userId, db);
   const baseTools = [...TOOLS, ...researchTools, ...WORKFLOW_TOOLS];
   const activeTools = extraTools?.length

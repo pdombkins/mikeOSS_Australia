@@ -12,6 +12,7 @@ import { workflowsRouter } from "./routes/workflows";
 import { userRouter } from "./routes/user";
 import { downloadsRouter } from "./routes/downloads";
 import { caseLawRouter } from "./routes/caseLaw";
+import { austliiRouter } from "./routes/austlii";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -155,6 +156,7 @@ app.use("/user", userRouter);
 app.use("/users", userRouter);
 app.use("/download", downloadsRouter);
 app.use("/case-law", caseLawRouter);
+app.use("/austlii", austliiRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
