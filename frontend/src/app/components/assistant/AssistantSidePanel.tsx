@@ -133,14 +133,9 @@ export function AssistantSidePanel({
     onScrollChange,
 }: Props) {
     const panelRef = useRef<HTMLDivElement>(null);
-    const [panelWidth, setPanelWidth] = useState(() =>
-        typeof window !== "undefined"
-            ? Math.min(
-                  maxPanelWidth(),
-                  Math.round((window.innerWidth - MAX_WIDTH_OFFSET) / 2),
-              )
-            : 600,
-    );
+    // Start at 600 so server and client initial renders match; the resize
+    // effect below immediately corrects this to the real window-based value.
+    const [panelWidth, setPanelWidth] = useState(600);
 
     const dragStartX = useRef<number>(0);
     const dragStartWidth = useRef<number>(0);

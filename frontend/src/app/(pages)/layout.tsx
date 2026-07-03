@@ -19,29 +19,27 @@ export default function MikeLayout({
     const [mobileActionsContainer, setMobileActionsContainer] =
         useState<HTMLDivElement | null>(null);
 
-    const [isSidebarOpenDesktop, setIsSidebarOpenDesktop] = useState(() => {
-        if (typeof window !== "undefined") {
-            const saved = localStorage.getItem("sidebarOpen");
-            return saved !== null ? saved === "true" : true;
-        }
-        return true;
-    });
+    // Always start with `true` so server and client initial renders match.
+    // The real values are read from localStorage / window in effects below.
+    const [isSidebarOpenDesktop, setIsSidebarOpenDesktop] = useState(true);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-    const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-        if (typeof window !== "undefined" && window.innerWidth < 768) {
-            return false;
-        }
-        return true;
-    });
+    // Hydrate sidebar state from localStorage and screen width after mount.
+    useEffect(() => {
+        const saved = localStorage.getItem("sidebarOpen");
+        const restoredDesktop = saved !== null ? saved === "true" : true;
+        const isSmall = window.innerWidth < 768;
+        setIsSidebarOpenDesktop(restoredDesktop);
+        setIsSidebarOpen(isSmall ? false : restoredDesktop);
+    }, []);
 
     useEffect(() => {
-        if (typeof window !== "undefined" && window.innerWidth >= 768) {
+        if (window.innerWidth >= 768) {
             localStorage.setItem("sidebarOpen", isSidebarOpen.toString());
         }
     }, [isSidebarOpenDesktop]);
 
     useEffect(() => {
-        if (typeof window === "undefined") return;
         const handleResize = () => {
             const isSmall = window.innerWidth < 768;
             if (isSmall && isSidebarOpen) setIsSidebarOpen(false);
