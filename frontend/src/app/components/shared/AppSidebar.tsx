@@ -10,6 +10,7 @@ import {
     User,
     ChevronsUpDown,
     ChevronDown,
+    ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/contexts/UserProfileContext";
@@ -166,7 +167,12 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
             </div>
 
             {/* Nav items */}
-            {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+            {[
+                ...NAV_ITEMS,
+                ...(profile?.isAdmin
+                    ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }]
+                    : []),
+            ].map(({ href, label, icon: Icon }) => {
                 const isActive =
                     href === "/assistant"
                         ? pathname === href

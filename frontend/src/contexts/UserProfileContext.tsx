@@ -31,6 +31,7 @@ interface UserProfile {
     tabularModel: string;
     mfaOnLogin: boolean;
     legalResearchUs: boolean;
+    isAdmin: boolean;
     apiKeys: ApiKeyState;
 }
 
@@ -90,6 +91,7 @@ function toProfile(data: ApiUserProfile): UserProfile {
     return {
         ...profile,
         mfaOnLogin: profile.mfaOnLogin === true,
+        isAdmin: profile.isAdmin === true,
         apiKeys,
     };
 }

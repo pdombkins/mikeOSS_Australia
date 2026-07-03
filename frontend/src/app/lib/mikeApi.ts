@@ -223,7 +223,55 @@ export interface UserProfile {
     tabularModel: string;
     mfaOnLogin: boolean;
     legalResearchUs: boolean;
+    isAdmin: boolean;
     apiKeyStatus: ApiKeyStatus;
+}
+
+// ── Admin API ─────────────────────────────────────────────────────────────────
+
+export interface AdminUser {
+    id: string;
+    email: string;
+    displayName: string | null;
+    isAdmin: boolean;
+    createdAt: string;
+    lastSignIn: string | null;
+    confirmedAt: string | null;
+}
+
+export interface AdminInvitation {
+    id: string;
+    email: string;
+    accepted_at: string | null;
+    created_at: string;
+}
+
+export async function adminListUsers(): Promise<AdminUser[]> {
+    const { users } = await apiRequest<{ users: AdminUser[] }>("/admin/users");
+    return users;
+}
+
+export async function adminRemoveUser(userId: string): Promise<void> {
+    await apiRequest(`/admin/users/${userId}`, { method: "DELETE" });
+}
+
+export async function adminInviteUser(email: string): Promise<void> {
+    await apiRequest("/admin/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+    });
+}
+
+export async function adminListInvitations(): Promise<AdminInvitation[]> {
+    const { invitations } = await apiRequest<{ invitations: AdminInvitation[] }>(
+        "/admin/invitations",
+    );
+    return invitations;
+}
+
+export async function adminRevokeInvitation(id: string): Promise<void> {
+    await apiRequest(`/admin/invitations/${id}`, { method: "DELETE" });
 }
 
 export async function getUserProfile(): Promise<UserProfile> {
