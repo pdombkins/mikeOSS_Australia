@@ -1682,6 +1682,11 @@ export function AssistantMessage({
         onEditResolved?.(args);
     };
 
+    // Extract cost event if present
+    const costEvent = (events ?? []).find(
+        (e): e is Extract<AssistantEvent, { type: "cost" }> => e.type === "cost",
+    );
+
     const eventErrorMessages = (events ?? [])
         .map(eventErrorMessage)
         .filter((message): message is string => !!message);
@@ -1705,7 +1710,8 @@ export function AssistantMessage({
     const isRenderableEvent = (event: AssistantEvent) =>
         event.type !== "error" &&
         event.type !== "case_citation" &&
-        event.type !== "case_opinions";
+        event.type !== "case_opinions" &&
+        event.type !== "cost";
 
     // Find the last content event so its raw text can be smoothed before
     // citation preprocessing — slicing already-preprocessed text would risk
@@ -2549,7 +2555,7 @@ export function AssistantMessage({
                     />
                 )}
 
-                {/* Copy button */}
+                {/* Copy button + cost badge */}
                 <div className="flex items-center gap-2 pt-2 pb-4 md:pb-8 font-sans justify-start">
                     {!isStreaming && (
                         <button
@@ -2562,6 +2568,18 @@ export function AssistantMessage({
                                 <Copy className="h-3.5 w-3.5" />
                             )}
                         </button>
+                    )}
+                    {!isStreaming && costEvent && (
+                        <span
+                            title={`${costEvent.model} · ${costEvent.inputTokens.toLocaleString()} in / ${costEvent.outputTokens.toLocaleString()} out tokens`}
+                            className="text-[11px] text-gray-400 font-mono select-none cursor-default"
+                        >
+                            A${costEvent.costAud < 0.001
+                                ? costEvent.costAud.toFixed(6)
+                                : costEvent.costAud < 0.01
+                                  ? costEvent.costAud.toFixed(5)
+                                  : costEvent.costAud.toFixed(4)}
+                        </span>
                     )}
                 </div>
             </div>

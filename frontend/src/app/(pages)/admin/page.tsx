@@ -11,6 +11,9 @@ import {
     CheckCircle2,
     XCircle,
     ShieldCheck,
+    DollarSign,
+    ChevronDown,
+    ChevronUp,
 } from "lucide-react";
 import { useUserProfile } from "@/contexts/UserProfileContext";
 import {
@@ -19,8 +22,11 @@ import {
     adminInviteUser,
     adminListInvitations,
     adminRevokeInvitation,
+    adminGetCosts,
     type AdminUser,
     type AdminInvitation,
+    type AdminCostTotals,
+    type AdminCostLineItem,
     MikeApiError,
 } from "@/app/lib/mikeApi";
 
@@ -66,6 +72,11 @@ export default function AdminPage() {
     const [confirmRemove, setConfirmRemove] = useState<AdminUser | null>(null);
     const [revokingId, setRevokingId] = useState<string | null>(null);
 
+    const [costTotals, setCostTotals] = useState<AdminCostTotals | null>(null);
+    const [costLineItems, setCostLineItems] = useState<AdminCostLineItem[]>([]);
+    const [showCostDetails, setShowCostDetails] = useState(false);
+    const [loadingCosts, setLoadingCosts] = useState(false);
+
     // Redirect if not admin
     useEffect(() => {
         if (!profileLoading && profile && !profile.isAdmin) {
@@ -89,11 +100,25 @@ export default function AdminPage() {
         }
     }, []);
 
+    const loadCosts = useCallback(async () => {
+        setLoadingCosts(true);
+        try {
+            const data = await adminGetCosts(200, 0);
+            setCostTotals(data.totals);
+            setCostLineItems(data.lineItems);
+        } catch {
+            // swallow
+        } finally {
+            setLoadingCosts(false);
+        }
+    }, []);
+
     useEffect(() => {
         if (profile?.isAdmin) {
             loadData();
+            loadCosts();
         }
-    }, [profile?.isAdmin, loadData]);
+    }, [profile?.isAdmin, loadData, loadCosts]);
 
     const handleInvite = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -372,6 +397,105 @@ export default function AdminPage() {
                     To restrict sign-ups to invited users only, disable{" "}
                     <strong>Enable email signups</strong> in your Supabase Auth settings.
                 </p>
+
+                {/* Cost dashboard */}
+                <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+                    <div className="mb-4 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <DollarSign className="h-4 w-4 text-gray-500" />
+                            <h2 className="text-sm font-semibold text-gray-900">
+                                Usage &amp; Costs (AUD)
+                            </h2>
+                        </div>
+                        <button
+                            onClick={loadCosts}
+                            disabled={loadingCosts}
+                            className="text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-40"
+                        >
+                            {loadingCosts ? "Loading…" : "Refresh"}
+                        </button>
+                    </div>
+
+                    {costTotals ? (
+                        <>
+                            {/* KPI cards */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                                {[
+                                    { label: "Total queries", value: costTotals.totalQueries.toLocaleString() },
+                                    { label: "Total cost", value: `A$${costTotals.totalAud.toFixed(4)}` },
+                                    { label: "Input tokens", value: (costTotals.totalInputTokens / 1000).toFixed(1) + "K" },
+                                    { label: "Output tokens", value: (costTotals.totalOutputTokens / 1000).toFixed(1) + "K" },
+                                ].map(({ label, value }) => (
+                                    <div key={label} className="rounded-xl bg-gray-50 p-3">
+                                        <p className="text-[11px] text-gray-500">{label}</p>
+                                        <p className="text-base font-semibold text-gray-900 font-mono">{value}</p>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Toggle breakdown */}
+                            <button
+                                onClick={() => setShowCostDetails((v) => !v)}
+                                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                            >
+                                {showCostDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                {showCostDetails ? "Hide" : "Show"} line-item breakdown
+                            </button>
+
+                            {showCostDetails && costLineItems.length > 0 && (
+                                <div className="mt-3 overflow-x-auto rounded-xl border border-gray-100">
+                                    <table className="min-w-full text-xs">
+                                        <thead className="bg-gray-50 text-gray-500">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left font-medium">Date</th>
+                                                <th className="px-3 py-2 text-left font-medium">User</th>
+                                                <th className="px-3 py-2 text-left font-medium">Model</th>
+                                                <th className="px-3 py-2 text-left font-medium">Source</th>
+                                                <th className="px-3 py-2 text-right font-medium">In tokens</th>
+                                                <th className="px-3 py-2 text-right font-medium">Out tokens</th>
+                                                <th className="px-3 py-2 text-right font-medium">Cost (AUD)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50">
+                                            {costLineItems.map((item) => (
+                                                <tr key={item.id} className="hover:bg-gray-50/50">
+                                                    <td className="px-3 py-2 font-mono text-gray-500 whitespace-nowrap">
+                                                        {new Date(item.created_at).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                                                        {" "}
+                                                        {new Date(item.created_at).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-gray-700 max-w-[140px] truncate">{item.userEmail}</td>
+                                                    <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{item.model}</td>
+                                                    <td className="px-3 py-2 text-gray-500 capitalize">{item.source}</td>
+                                                    <td className="px-3 py-2 text-right font-mono text-gray-600">{item.input_tokens.toLocaleString()}</td>
+                                                    <td className="px-3 py-2 text-right font-mono text-gray-600">{item.output_tokens.toLocaleString()}</td>
+                                                    <td className="px-3 py-2 text-right font-mono font-medium text-gray-800">
+                                                        A${item.cost_aud.toFixed(item.cost_aud < 0.001 ? 6 : 4)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    {costLineItems.length >= 200 && (
+                                        <p className="px-3 py-2 text-center text-xs text-gray-400">
+                                            Showing most recent 200 queries.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {showCostDetails && costLineItems.length === 0 && (
+                                <p className="mt-3 text-sm text-gray-400">No queries recorded yet.</p>
+                            )}
+                        </>
+                    ) : loadingCosts ? (
+                        <div className="flex items-center justify-center py-6">
+                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-gray-600" />
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-400">No cost data available yet.</p>
+                    )}
+                </div>
             </div>
         </div>
     );

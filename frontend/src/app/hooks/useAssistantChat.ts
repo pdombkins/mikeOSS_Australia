@@ -1088,6 +1088,23 @@ export function useAssistantChat({
               continue;
             }
 
+            if (data.type === "cost") {
+              // Attach cost info to the current assistant message.
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last?.role === "assistant") {
+                  updated[updated.length - 1] = {
+                    ...last,
+                    costAud: typeof data.costAud === "number" ? (data.costAud as number) : undefined,
+                    costModel: typeof data.model === "string" ? (data.model as string) : undefined,
+                  };
+                }
+                return updated;
+              });
+              continue;
+            }
+
             if (data.type === "citations") {
               const status =
                 data.status === "started" ||

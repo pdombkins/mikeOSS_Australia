@@ -57,6 +57,7 @@ import {
   type OpenAIToolSchema,
 } from "./llm";
 import { safeErrorMessage } from "./safeError";
+import { calculateCostAud } from "./pricing";
 
 const STANDARD_FONT_DATA_URL = (() => {
   try {
@@ -4110,6 +4111,10 @@ export async function runLLMStream(params: {
    * generated docs still get persisted, but as standalone documents.
    */
   projectId?: string | null;
+  /** Used for cost attribution. Defaults to 'assistant'. */
+  costSource?: "assistant" | "project" | "tabular" | "workflow";
+  /** Chat ID for cost attribution. */
+  chatId?: string | null;
 }): Promise<{
   fullText: string;
   events: AssistantEvent[];
@@ -4131,6 +4136,8 @@ export async function runLLMStream(params: {
     apiKeys,
     signal,
     projectId,
+    costSource = "assistant",
+    chatId,
   } = params;
   const researchTools = includeResearchTools ? [...COURTLISTENER_TOOLS, ...AUSTLII_TOOLS] : [];
   const mcpTools = await buildUserMcpTools(userId, db);
@@ -4273,9 +4280,10 @@ export async function runLLMStream(params: {
 
   const selectedModel = resolveModel(model, DEFAULT_MAIN_MODEL);
 
+  let llmResult: import("./llm").StreamChatResult | undefined;
   try {
     throwIfAborted(signal);
-    await streamChatWithTools({
+    llmResult = await streamChatWithTools({
       model: selectedModel,
       systemPrompt,
       messages: chatMessages,
@@ -4450,6 +4458,51 @@ export async function runLLMStream(params: {
   }
 
   flushText();
+
+  // ---------------------------------------------------------------------------
+  // Cost tracking: calculate, store, and emit cost event
+  // ---------------------------------------------------------------------------
+  if (llmResult?.inputTokens || llmResult?.outputTokens) {
+    try {
+      const cost = await calculateCostAud(
+        llmResult.model ?? selectedModel,
+        llmResult.inputTokens ?? 0,
+        llmResult.outputTokens ?? 0,
+      );
+      // Persist to DB (fire-and-forget; don't block the response).
+      void (async () => {
+        const { error: insertErr } = await db
+          .from("query_costs")
+          .insert({
+            user_id: userId,
+            chat_id: chatId ?? null,
+            model: cost.model,
+            input_tokens: cost.inputTokens,
+            output_tokens: cost.outputTokens,
+            cost_usd: cost.costUsd,
+            cost_aud: cost.costAud,
+            aud_rate: cost.audRate,
+            source: costSource,
+          });
+        if (insertErr) {
+          console.error("[cost] failed to save query cost:", insertErr.message);
+        }
+      })();
+      // Emit cost event so the client can display it.
+      write(
+        `data: ${JSON.stringify({
+          type: "cost",
+          model: cost.model,
+          inputTokens: cost.inputTokens,
+          outputTokens: cost.outputTokens,
+          costUsd: cost.costUsd,
+          costAud: cost.costAud,
+        })}\n\n`,
+      );
+    } catch (err) {
+      console.error("[cost] failed to calculate cost:", err);
+    }
+  }
 
   // Parse and emit citations from <CITATIONS> block
   const { citations: parsedCitations, diagnostics: citationDiagnostics } =

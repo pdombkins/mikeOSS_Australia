@@ -245,7 +245,15 @@ export type AssistantEvent =
         }[];
       };
     }
-  | { type: "content"; text: string; isStreaming?: boolean };
+  | { type: "content"; text: string; isStreaming?: boolean }
+  | {
+      type: "cost";
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd: number;
+      costAud: number;
+    };
 
 export type CaseCitationQuote = {
   opinionId: number | null;
@@ -265,6 +273,10 @@ export interface Message {
   events?: AssistantEvent[];
   /** Set when streaming failed; rendered as a red error block. */
   error?: string;
+  /** Cost of this message's LLM call in AUD (set after streaming). */
+  costAud?: number;
+  /** Model used for cost tracking. */
+  costModel?: string;
 }
 
 export interface CitationQuote {

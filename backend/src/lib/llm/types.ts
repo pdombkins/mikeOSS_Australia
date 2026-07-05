@@ -65,4 +65,10 @@ export type StreamChatParams = {
 
 export type StreamChatResult = {
     fullText: string;
+    /** Total input tokens consumed across all tool-call iterations. */
+    inputTokens?: number;
+    /** Total output tokens consumed across all tool-call iterations. */
+    outputTokens?: number;
+    /** The model ID that was used (echoed from params.model). */
+    model?: string;
 };

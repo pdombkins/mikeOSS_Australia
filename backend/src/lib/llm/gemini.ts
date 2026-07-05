@@ -175,6 +175,8 @@ export async function streamGemini(
 
   const contents: GeminiContent[] = toNativeContents(params.messages);
   let fullText = "";
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
   const rawStreamRecorder = createRawLlmStreamRecorder({
     provider: "gemini",
     model,
@@ -182,6 +184,10 @@ export async function streamGemini(
 
   try {
     for (let iter = 0; iter < maxIter; iter++) {
+      // Per-iteration token counters (usageMetadata is cumulative within one API call,
+      // so we track the last seen values per iteration then add to totals after).
+      let iterInputTokens = 0;
+      let iterOutputTokens = 0;
       throwIfAborted(params.abortSignal);
       let stream: AsyncIterable<unknown>;
       try {
@@ -244,6 +250,14 @@ export async function streamGemini(
           const failureMessage = geminiStreamFailureMessage(chunk);
           if (failureMessage) throw new Error(failureMessage);
 
+          // Capture token usage from chunks (usageMetadata may appear on any chunk;
+          // promptTokenCount is cumulative for this API call, so we assign not accumulate).
+          const chunkUsage = (chunk as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } }).usageMetadata;
+          if (chunkUsage) {
+            if (typeof chunkUsage.promptTokenCount === "number") iterInputTokens = chunkUsage.promptTokenCount;
+            if (typeof chunkUsage.candidatesTokenCount === "number") iterOutputTokens = chunkUsage.candidatesTokenCount;
+          }
+
           const parts =
             (chunk as { candidates?: { content?: { parts?: GeminiPart[] } }[] })
               .candidates?.[0]?.content?.parts ?? [];
@@ -287,6 +301,10 @@ export async function streamGemini(
       if (sawThinking) callbacks.onReasoningBlockEnd?.();
       throwIfAborted(params.abortSignal);
 
+      // Accumulate this iteration's tokens into the running totals.
+      totalInputTokens += iterInputTokens;
+      totalOutputTokens += iterOutputTokens;
+
       fullText += textParts.join("");
 
       if (!toolCalls.length || !runTools) {
@@ -321,7 +339,12 @@ export async function streamGemini(
     }
 
     await rawStreamRecorder?.flush("completed");
-    return { fullText };
+    return {
+      fullText,
+      inputTokens: totalInputTokens || undefined,
+      outputTokens: totalOutputTokens || undefined,
+      model,
+    };
   } catch (error) {
     await rawStreamRecorder?.flush("error", error);
     throw error;

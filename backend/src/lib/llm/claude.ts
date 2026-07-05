@@ -119,6 +119,8 @@ export async function streamClaude(
 
   const messages: NativeMessage[] = toNativeMessages(params.messages);
   let fullText = "";
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
   const rawStreamRecorder = createRawLlmStreamRecorder({
     provider: "claude",
     model,
@@ -210,6 +212,9 @@ export async function streamClaude(
       }
       if (sawThinking) callbacks.onReasoningBlockEnd?.();
       throwIfAborted(params.abortSignal);
+      // Accumulate token usage across all tool-call iterations.
+      totalInputTokens += final.usage?.input_tokens ?? 0;
+      totalOutputTokens += final.usage?.output_tokens ?? 0;
       const stopReason = final.stop_reason;
       const assistantBlocks = final.content as ContentBlock[];
 
@@ -258,7 +263,12 @@ export async function streamClaude(
     }
 
     await rawStreamRecorder?.flush("completed");
-    return { fullText };
+    return {
+      fullText,
+      inputTokens: totalInputTokens || undefined,
+      outputTokens: totalOutputTokens || undefined,
+      model,
+    };
   } catch (error) {
     await rawStreamRecorder?.flush("error", error);
     throw error;

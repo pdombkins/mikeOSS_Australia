@@ -274,6 +274,45 @@ export async function adminRevokeInvitation(id: string): Promise<void> {
     await apiRequest(`/admin/invitations/${id}`, { method: "DELETE" });
 }
 
+export interface AdminCostTotals {
+    totalQueries: number;
+    totalUsd: number;
+    totalAud: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+}
+
+export interface AdminCostLineItem {
+    id: string;
+    user_id: string;
+    userEmail: string;
+    chat_id: string | null;
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number;
+    cost_aud: number;
+    aud_rate: number;
+    source: string;
+    created_at: string;
+}
+
+export interface AdminCostsResponse {
+    totals: AdminCostTotals;
+    lineItems: AdminCostLineItem[];
+    offset: number;
+    limit: number;
+}
+
+export async function adminGetCosts(
+    limit = 100,
+    offset = 0,
+): Promise<AdminCostsResponse> {
+    return apiRequest<AdminCostsResponse>(
+        `/admin/costs?limit=${limit}&offset=${offset}`,
+    );
+}
+
 export async function getUserProfile(): Promise<UserProfile> {
     return apiRequest<UserProfile>("/user/profile");
 }

@@ -175,3 +175,71 @@ adminRouter.delete("/invitations/:id", async (req, res) => {
 
   res.json({ ok: true });
 });
+
+// ── GET /admin/costs ──────────────────────────────────────────────────────────
+// Returns aggregate totals + paginated line-item breakdown.
+
+adminRouter.get("/costs", async (req, res) => {
+  const db = createServerSupabase();
+  const limit = Math.min(parseInt(String(req.query.limit ?? "100"), 10) || 100, 500);
+  const offset = parseInt(String(req.query.offset ?? "0"), 10) || 0;
+
+  // Totals across all queries
+  const { data: totals, error: totalsError } = await db
+    .from("query_costs")
+    .select("cost_usd, cost_aud, input_tokens, output_tokens");
+
+  if (totalsError) {
+    return void res.status(500).json({ detail: totalsError.message });
+  }
+
+  let totalUsd = 0;
+  let totalAud = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalQueries = 0;
+  for (const row of (totals ?? []) as { cost_usd: number; cost_aud: number; input_tokens: number; output_tokens: number }[]) {
+    totalUsd += row.cost_usd;
+    totalAud += row.cost_aud;
+    totalInputTokens += row.input_tokens;
+    totalOutputTokens += row.output_tokens;
+    totalQueries++;
+  }
+
+  // Line-item breakdown (paginated, most recent first)
+  const { data: rows, error: rowsError } = await db
+    .from("query_costs")
+    .select("id, user_id, chat_id, model, input_tokens, output_tokens, cost_usd, cost_aud, aud_rate, source, created_at")
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (rowsError) {
+    return void res.status(500).json({ detail: rowsError.message });
+  }
+
+  // Enrich with user emails
+  const { data: authData } = await db.auth.admin.listUsers({ perPage: 1000 });
+  const emailById = new Map((authData?.users ?? []).map((u) => [u.id, u.email ?? ""]));
+
+  const lineItems = (rows ?? []).map((r: {
+    id: string; user_id: string; chat_id: string | null; model: string;
+    input_tokens: number; output_tokens: number; cost_usd: number; cost_aud: number;
+    aud_rate: number; source: string; created_at: string;
+  }) => ({
+    ...r,
+    userEmail: emailById.get(r.user_id) ?? r.user_id,
+  }));
+
+  res.json({
+    totals: {
+      totalQueries,
+      totalUsd,
+      totalAud,
+      totalInputTokens,
+      totalOutputTokens,
+    },
+    lineItems,
+    offset,
+    limit,
+  });
+});
