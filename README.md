@@ -4,11 +4,11 @@
 >
 > Mike (Australia) is a university teaching and research project. It is **not** intended for commercial use, and it does **not** provide legal advice.
 >
-> Mike integrates with **Jade.io** (BarNet) for Australian case-law citation validation and judgment retrieval. Jade.io's [Acceptable Use Policy](https://ppp.jade.io/acceptable-use-policy) **prohibits automated access without BarNet's prior written permission**. **You must obtain written permission from Jade.io before using this software.**
+> Mike verifies Australian case citations through a pluggable set of sources. **By default it uses human-in-the-loop verification on AustLII**: your own browser opens an AustLII search in a new tab (ordinary, permitted end-use) and you record whether the citation checks out — Mike never fetches AustLII itself. Automated verification via **Jade.io** (BarNet) is **off by default**: Jade.io's [Acceptable Use Policy](https://ppp.jade.io/acceptable-use-policy) prohibits automated access without BarNet's prior written permission, so it must be enabled by an admin **only after** obtaining that permission. **Do not enable Jade.io access until you have BarNet's written permission.**
 
 Mike is an Australian legal document assistant with a Next.js frontend, an Express backend, Supabase Auth/Postgres, and Cloudflare R2-compatible object storage.
 
-This is the Australian fork of Mike OSS, configured specifically for Australian and New Zealand law. It integrates with **Jade.io** for case-law citation validation and judgment retrieval, and formats citations per AGLC4 (Australian Guide to Legal Citation, 4th edition). Automated access to Jade.io requires BarNet's prior written permission (see the notice above). **AustLII is not used by this project.**
+This is the Australian fork of Mike OSS, configured specifically for Australian and New Zealand law. It formats citations per AGLC4 (Australian Guide to Legal Citation, 4th edition) and verifies them through swappable sources — human verification on AustLII by default, or automated verification via Jade.io once BarNet's permission is held and an admin enables it. See [Citation verification](#citation-verification-australian-law) below.
 
 Website: [mikeoss.com](https://mikeoss.com)
 
@@ -39,7 +39,7 @@ For a new Supabase database, open the Supabase SQL editor and run:
 -- backend/schema.sql
 ```
 
-The schema file is for fresh deployments and already includes the latest database shape.
+The schema file is for fresh deployments and already includes the latest database shape (including the `app_settings` table that stores the citation-verification setting). For an existing database, apply `backend/migrations/20260705_app_settings.sql` to add that table before using the citation-verification toggle.
 
 For an existing database, do not run the full schema file over production data. Instead, apply the incremental files in `backend/migrations/`: run the migrations dated **after** the version of Mike you currently have deployed, in filename order. Each file is named `YYYYMMDD_<name>.sql` (the date is also recorded in a comment at the top of the file) and is written to be safe to re-run, so when unsure you can re-apply the most recent migrations without harm.
 
@@ -90,6 +90,22 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
 Supabase values come from the project dashboard. Use the project URL for `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL`, the service role key for the backend `SUPABASE_SECRET_KEY`, and the anon/public key for `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`. If your Supabase project shows multiple key formats, use the legacy JWT-style anon and service role keys expected by the Supabase client libraries.
 
 Provider keys are only needed for the models, legal research, and email features you plan to use. Model provider keys and the CourtListener token can be configured in `backend/.env` for the whole instance, or per user in **Account > Models & API Keys**. If a provider key is present in `backend/.env`, that provider is available by default and the matching browser API key field is read-only.
+
+## Citation verification (Australian law)
+
+Before the assistant relies on an Australian or New Zealand case citation, it calls a `verify_citation` tool that routes to a configurable chain of verification sources. Two are built in:
+
+- **AustLII (human, default).** Mike does **not** access AustLII programmatically. It shows a verification card with the citation and a "Search on AustLII" button; your browser opens the AustLII search in a new tab (ordinary permitted end-use), you confirm the citation yourself, and record **Verified** / **Not verified**. Only that outcome — never AustLII content — is passed back to the assistant, which then finalises its advice.
+- **Jade.io (automated, opt-in).** When enabled, Mike verifies citations automatically against Jade.io, falling back to AustLII human verification only if Jade.io fails.
+
+An admin controls which is used from **Admin → Legal research → citation verification**, via the setting *"Have you obtained approval from Jade.io to access their platform via this tool?"*:
+
+- **No** (default) → AustLII human verification only, with no automated Jade.io access.
+- **Yes** → Jade.io automated verification, with AustLII human verification as a fallback.
+
+The setting is stored per instance in the `app_settings` table (`jade_access_approved`, defaulting to `false`). **Only set it to Yes after obtaining BarNet's written permission for automated Jade.io access.**
+
+Verification sources are pluggable: a new source (e.g. another provider) is added by implementing a small `VerificationSource` in `backend/src/lib/verification/sources/` and adding its id to a chain in `backend/src/lib/verification/index.ts` — no other code changes required.
 
 ## CourtListener Integration
 
