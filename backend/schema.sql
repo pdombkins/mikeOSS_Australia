@@ -820,3 +820,17 @@ revoke all on public.user_mcp_connector_tools from anon, authenticated;
 revoke all on public.user_mcp_tool_audit_logs from anon, authenticated;
 revoke all on public.courtlistener_citation_index from anon, authenticated;
 revoke all on public.courtlistener_opinion_cluster_index from anon, authenticated;
+
+-- App-wide key/value settings (admin-managed). Governs, e.g., which
+-- citation-verification source chain is used (jade_access_approved).
+create table if not exists public.app_settings (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now(),
+  updated_by uuid
+);
+alter table public.app_settings enable row level security;
+revoke all on public.app_settings from anon, authenticated;
+insert into public.app_settings (key, value)
+values ('jade_access_approved', 'false'::jsonb)
+on conflict (key) do nothing;

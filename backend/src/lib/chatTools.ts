@@ -40,10 +40,17 @@ import {
 import {
   searchJadeCases,
   searchJadeLegislation,
-  validateJadeCitation,
   fetchJadeDocument,
   formatAGLC4Citation,
 } from "./jade";
+import {
+  VERIFICATION_TOOL_NAME,
+  VERIFICATION_TOOLS,
+  VERIFICATION_SYSTEM_PROMPT,
+  type CitationVerificationEvent,
+} from "./legalSourcesTools/verificationTools";
+import { verifyCitation } from "./verification";
+import { getJadeAccessApproved } from "./appSettings";
 import {
   buildUserMcpTools,
   executeMcpToolCall,
@@ -186,7 +193,7 @@ GENERAL GUIDANCE:
  */
 export function buildSystemPrompt(includeResearchTools = true): string {
   return includeResearchTools
-    ? `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${COURTLISTENER_SYSTEM_PROMPT}\n\n${JADE_SYSTEM_PROMPT}\n${SYSTEM_PROMPT_AFTER_RESEARCH}`
+    ? `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${COURTLISTENER_SYSTEM_PROMPT}\n\n${JADE_SYSTEM_PROMPT}\n\n${VERIFICATION_SYSTEM_PROMPT}\n${SYSTEM_PROMPT_AFTER_RESEARCH}`
     : `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${SYSTEM_PROMPT_AFTER_RESEARCH}`;
 }
 
@@ -3209,23 +3216,44 @@ export async function runToolCalls(
         });
       }
 
-    } else if (tc.function.name === JADE_TOOL_NAMES.validateCitation) {
-      const { citation } = args as { citation?: string };
-      write(`data: ${JSON.stringify({ type: "jade_validate_citation_start", citation })}\n\n`);
+    } else if (tc.function.name === VERIFICATION_TOOL_NAME) {
+      const { citation, caseName } = args as {
+        citation?: string;
+        caseName?: string;
+      };
+      write(`data: ${JSON.stringify({ type: "verify_citation_start", citation })}\n\n`);
       try {
-        const result = await validateJadeCitation(citation ?? "");
-        write(`data: ${JSON.stringify({ type: "jade_validate_citation_result", citation, valid: result.valid })}\n\n`);
+        const jadeApproved = await getJadeAccessApproved();
+        const result = await verifyCitation(
+          { citation: citation ?? "", caseName },
+          { jadeApproved },
+        );
+        if (result.status === "needs_human" && result.searchUrl) {
+          // Hand the search off to the user's own browser via a verification
+          // panel; the model must not finalise until the user responds.
+          const ev: CitationVerificationEvent = {
+            type: "citation_verification_required",
+            citation: result.citation,
+            caseName: caseName ?? null,
+            sourceLabel: result.sourceLabel,
+            searchUrl: result.searchUrl,
+          };
+          write(`data: ${JSON.stringify(ev)}\n\n`);
+        } else {
+          write(`data: ${JSON.stringify({ type: "verify_citation_result", citation, status: result.status })}\n\n`);
+        }
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
           content: JSON.stringify(result),
         });
       } catch (err) {
-        const error = err instanceof Error ? err.message : "Citation validation failed";
+        const error = err instanceof Error ? err.message : "Citation verification failed";
+        write(`data: ${JSON.stringify({ type: "verify_citation_error", citation, error })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: JSON.stringify({ valid: false, message: error }),
+          content: JSON.stringify({ status: "error", message: error }),
         });
       }
 
@@ -4139,7 +4167,7 @@ export async function runLLMStream(params: {
     costSource = "assistant",
     chatId,
   } = params;
-  const researchTools = includeResearchTools ? [...COURTLISTENER_TOOLS, ...JADE_TOOLS] : [];
+  const researchTools = includeResearchTools ? [...COURTLISTENER_TOOLS, ...JADE_TOOLS, ...VERIFICATION_TOOLS] : [];
   const mcpTools = await buildUserMcpTools(userId, db);
   const baseTools = [...TOOLS, ...researchTools, ...WORKFLOW_TOOLS];
   const activeTools = extraTools?.length

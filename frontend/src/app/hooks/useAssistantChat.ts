@@ -582,6 +582,29 @@ export function useAssistantChat({
               continue;
             }
 
+            if (data.type === "citation_verification_required") {
+              pushEvent({
+                type: "citation_verification_required",
+                citation:
+                  typeof data.citation === "string"
+                    ? (data.citation as string)
+                    : "",
+                caseName:
+                  typeof data.caseName === "string"
+                    ? (data.caseName as string)
+                    : null,
+                sourceLabel:
+                  typeof data.sourceLabel === "string"
+                    ? (data.sourceLabel as string)
+                    : "the source",
+                searchUrl:
+                  typeof data.searchUrl === "string"
+                    ? (data.searchUrl as string)
+                    : "",
+              });
+              continue;
+            }
+
             if (data.type === "case_citation") {
               pushEvent({
                 type: "case_citation",

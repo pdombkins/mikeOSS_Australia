@@ -313,6 +313,24 @@ export async function adminGetCosts(
     );
 }
 
+export interface AdminSettings {
+    jadeAccessApproved: boolean;
+}
+
+export async function adminGetSettings(): Promise<AdminSettings> {
+    return apiRequest<AdminSettings>("/admin/settings");
+}
+
+export async function adminUpdateSettings(
+    settings: AdminSettings,
+): Promise<AdminSettings> {
+    return apiRequest<AdminSettings>("/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+    });
+}
+
 export async function getUserProfile(): Promise<UserProfile> {
     return apiRequest<UserProfile>("/user/profile");
 }

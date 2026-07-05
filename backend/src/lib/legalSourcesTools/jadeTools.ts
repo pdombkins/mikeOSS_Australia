@@ -72,7 +72,7 @@ Use the Jade tools when answering questions that require Australian or New Zeala
 Available jurisdictions: cth (Commonwealth), nsw, vic, qld, sa, wa, tas, nt, act, nz, or omit for all jurisdictions.
 
 Workflow:
-1. If you have neutral citations (e.g. [2024] HCA 5), verify them with jade_validate_citation first.
+1. If you have neutral citations (e.g. [2024] HCA 5), verify them with verify_citation first (see the CITATION VERIFICATION section).
 2. Search for cases by topic or case name with jade_search_cases.
 3. Search for legislation by name or topic with jade_search_legislation.
 4. If you need the full text of a judgment, fetch it with jade_fetch_document using a Jade.io MNC URL (e.g. https://jade.io/mnc/2024/hca/5).
@@ -171,25 +171,6 @@ export const JADE_TOOLS = [
           },
         },
         required: ["query"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: JADE_TOOL_NAMES.validateCitation,
-      description:
-        "Verify that an Australian neutral citation exists on Jade.io. Pass a neutral citation in the format [YYYY] COURT N (e.g. '[2024] HCA 5', '[2023] NSWCA 47'). Returns whether the citation is valid and the canonical Jade.io URL. Use before citing any case to confirm it exists.",
-      parameters: {
-        type: "object",
-        properties: {
-          citation: {
-            type: "string",
-            description:
-              "Neutral citation to validate. Format: [YYYY] COURT N — e.g. '[2024] HCA 5' or '[2023] NSWCA 47'. Do not pass case names or reported citations to this tool.",
-          },
-        },
-        required: ["citation"],
       },
     },
   },

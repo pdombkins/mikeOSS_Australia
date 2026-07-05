@@ -91,6 +91,13 @@ export type AssistantEvent =
   | { type: "reasoning"; text: string; isStreaming?: boolean }
   | { type: "error"; message: string }
   | {
+      type: "citation_verification_required";
+      citation: string;
+      caseName: string | null;
+      sourceLabel: string;
+      searchUrl: string;
+    }
+  | {
       type: "tool_call_start";
       name: string;
       isStreaming?: boolean;

@@ -1633,6 +1633,100 @@ interface Props {
      * edits flip their per-card UI without per-card clicks.
      */
     resolvedEditStatuses?: Record<string, "accepted" | "rejected">;
+    /**
+     * Fires when the user records a human citation-verification outcome from
+     * the AustLII verification panel. Parents send a follow-up message so the
+     * assistant can finalise its advice.
+     */
+    onVerifyCitation?: (args: {
+        citation: string;
+        status: "verified" | "not_verified";
+    }) => void;
+}
+
+/**
+ * Human-in-the-loop citation verification. The user opens the source (e.g.
+ * AustLII) in a new tab and verifies the citation themselves, then records the
+ * outcome. Nothing from the source is fetched by Mike — only the user's
+ * verified / not-verified decision is captured.
+ */
+function CitationVerificationCard({
+    event,
+    onVerify,
+}: {
+    event: Extract<
+        AssistantEvent,
+        { type: "citation_verification_required" }
+    >;
+    onVerify?: (args: {
+        citation: string;
+        status: "verified" | "not_verified";
+    }) => void;
+}) {
+    const [recorded, setRecorded] = useState<
+        "verified" | "not_verified" | null
+    >(null);
+
+    const record = (status: "verified" | "not_verified") => {
+        if (recorded) return;
+        setRecorded(status);
+        onVerify?.({ citation: event.citation, status });
+    };
+
+    return (
+        <div className="my-2 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+            <p className="text-xs font-semibold text-amber-800">
+                Citation needs your verification
+            </p>
+            <p className="mt-1 font-mono text-sm text-gray-900">
+                {event.caseName ? `${event.caseName} ` : ""}
+                {event.citation}
+            </p>
+            <p className="mt-1 text-xs text-gray-600">
+                Open {event.sourceLabel} in a new tab, confirm the citation
+                yourself, then record the outcome below.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+                <a
+                    href={event.searchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-700"
+                >
+                    Search on {event.sourceLabel} ↗
+                </a>
+                <button
+                    onClick={() => record("verified")}
+                    disabled={!!recorded}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-default ${
+                        recorded === "verified"
+                            ? "bg-green-600 text-white"
+                            : "border border-green-600 text-green-700 hover:bg-green-50 disabled:opacity-40"
+                    }`}
+                >
+                    Verified
+                </button>
+                <button
+                    onClick={() => record("not_verified")}
+                    disabled={!!recorded}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-default ${
+                        recorded === "not_verified"
+                            ? "bg-red-600 text-white"
+                            : "border border-red-500 text-red-600 hover:bg-red-50 disabled:opacity-40"
+                    }`}
+                >
+                    Not verified
+                </button>
+            </div>
+            {recorded && (
+                <p className="mt-2 text-xs text-gray-500">
+                    Recorded:{" "}
+                    {recorded === "verified" ? "Verified" : "Not verified"}. Sending
+                    this back so the assistant can finalise…
+                </p>
+            )}
+        </div>
+    );
 }
 
 export function AssistantMessage({
@@ -1656,6 +1750,7 @@ export function AssistantMessage({
     isDocReloading,
     isEditReloading,
     resolvedEditStatuses,
+    onVerifyCitation,
 }: Props) {
     const messageKey = useId();
     const contentDivRef = useRef<HTMLDivElement | null>(null);
@@ -2052,6 +2147,15 @@ export function AssistantMessage({
                             ? () => onWorkflowClick(event.workflow_id)
                             : undefined
                     }
+                />
+            );
+        }
+        if (event.type === "citation_verification_required") {
+            return (
+                <CitationVerificationCard
+                    key={globalIdx}
+                    event={event}
+                    onVerify={onVerifyCitation}
                 />
             );
         }

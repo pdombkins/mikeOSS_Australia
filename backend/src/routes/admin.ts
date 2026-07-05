@@ -15,6 +15,11 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
+import {
+  APP_SETTING_KEYS,
+  getJadeAccessApproved,
+  setAppSetting,
+} from "../lib/appSettings";
 
 export const adminRouter = Router();
 
@@ -174,6 +179,37 @@ adminRouter.delete("/invitations/:id", async (req, res) => {
   }
 
   res.json({ ok: true });
+});
+
+// ── GET /admin/settings ───────────────────────────────────────────────────────
+// Shared instance settings.
+
+adminRouter.get("/settings", async (_req, res) => {
+  const jadeAccessApproved = await getJadeAccessApproved();
+  res.json({ jadeAccessApproved });
+});
+
+// ── PUT /admin/settings ───────────────────────────────────────────────────────
+
+adminRouter.put("/settings", async (req, res) => {
+  const body =
+    req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? (req.body as Record<string, unknown>)
+      : {};
+
+  if (typeof body.jadeAccessApproved !== "boolean") {
+    return void res
+      .status(400)
+      .json({ detail: "jadeAccessApproved (boolean) is required" });
+  }
+
+  await setAppSetting(
+    APP_SETTING_KEYS.jadeAccessApproved,
+    body.jadeAccessApproved,
+    res.locals.userId as string,
+  );
+
+  res.json({ jadeAccessApproved: body.jadeAccessApproved });
 });
 
 // ── GET /admin/costs ──────────────────────────────────────────────────────────

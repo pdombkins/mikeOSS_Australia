@@ -670,6 +670,19 @@ export function ChatView({
                                                     );
                                                     setWorkflowModalOpen(true);
                                                 }}
+                                                onVerifyCitation={({
+                                                    citation,
+                                                    status,
+                                                }) =>
+                                                    handleChat({
+                                                        role: "user",
+                                                        content: `Citation verification — ${citation}: ${
+                                                            status === "verified"
+                                                                ? "verified"
+                                                                : "not verified"
+                                                        }. Please continue and finalise your advice accordingly.`,
+                                                    })
+                                                }
                                                 onEditViewClick={openEditor}
                                                 onOpenDocument={openDocument}
                                                 onEditResolveStart={

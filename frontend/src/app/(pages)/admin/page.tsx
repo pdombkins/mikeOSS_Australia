@@ -14,6 +14,7 @@ import {
     DollarSign,
     ChevronDown,
     ChevronUp,
+    Scale,
 } from "lucide-react";
 import { useUserProfile } from "@/contexts/UserProfileContext";
 import {
@@ -23,6 +24,8 @@ import {
     adminListInvitations,
     adminRevokeInvitation,
     adminGetCosts,
+    adminGetSettings,
+    adminUpdateSettings,
     type AdminUser,
     type AdminInvitation,
     type AdminCostTotals,
@@ -77,6 +80,9 @@ export default function AdminPage() {
     const [showCostDetails, setShowCostDetails] = useState(false);
     const [loadingCosts, setLoadingCosts] = useState(false);
 
+    const [jadeApproved, setJadeApproved] = useState<boolean | null>(null);
+    const [savingJade, setSavingJade] = useState(false);
+
     // Redirect if not admin
     useEffect(() => {
         if (!profileLoading && profile && !profile.isAdmin) {
@@ -87,12 +93,14 @@ export default function AdminPage() {
     const loadData = useCallback(async () => {
         setLoadingData(true);
         try {
-            const [usersData, invitationsData] = await Promise.all([
+            const [usersData, invitationsData, settingsData] = await Promise.all([
                 adminListUsers(),
                 adminListInvitations(),
+                adminGetSettings(),
             ]);
             setUsers(usersData);
             setInvitations(invitationsData);
+            setJadeApproved(settingsData.jadeAccessApproved);
         } catch {
             // swallow — errors shown inline
         } finally {
@@ -163,6 +171,21 @@ export default function AdminPage() {
         }
     };
 
+    const handleToggleJade = async (next: boolean) => {
+        if (savingJade || next === jadeApproved) return;
+        setSavingJade(true);
+        const previous = jadeApproved;
+        setJadeApproved(next); // optimistic
+        try {
+            const res = await adminUpdateSettings({ jadeAccessApproved: next });
+            setJadeApproved(res.jadeAccessApproved);
+        } catch {
+            setJadeApproved(previous); // revert on failure
+        } finally {
+            setSavingJade(false);
+        }
+    };
+
     const handleRevokeInvitation = async (id: string) => {
         setRevokingId(id);
         try {
@@ -201,6 +224,44 @@ export default function AdminPage() {
                             Manage who has access to this Mike OSS instance
                         </p>
                     </div>
+                </div>
+
+                {/* Legal research — citation verification source */}
+                <div className="mb-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+                    <div className="mb-3 flex items-center gap-2">
+                        <Scale className="h-4 w-4 text-gray-500" />
+                        <h2 className="text-sm font-semibold text-gray-900">
+                            Legal research — citation verification
+                        </h2>
+                    </div>
+                    <p className="text-sm text-gray-700">
+                        Have you obtained approval from Jade.io to access their
+                        platform via this tool?
+                    </p>
+                    <div className="mt-3 inline-flex rounded-lg border border-gray-200 p-0.5">
+                        {([false, true] as const).map((optYes) => {
+                            const active = jadeApproved === optYes;
+                            return (
+                                <button
+                                    key={optYes ? "yes" : "no"}
+                                    onClick={() => handleToggleJade(optYes)}
+                                    disabled={savingJade || jadeApproved === null}
+                                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                                        active
+                                            ? "bg-gray-900 text-white"
+                                            : "text-gray-600 hover:bg-gray-100"
+                                    } disabled:opacity-50`}
+                                >
+                                    {optYes ? "Yes" : "No"}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <p className="mt-3 text-xs text-gray-500">
+                        {jadeApproved
+                            ? "Citations are verified automatically via Jade.io, falling back to human verification on AustLII only if Jade.io fails."
+                            : "Default: citations are verified by you on AustLII (opens in a new tab for you to search). No automated Jade.io access is used."}
+                    </p>
                 </div>
 
                 {/* Invite section */}
