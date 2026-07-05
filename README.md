@@ -143,6 +143,32 @@ Open `http://localhost:3000`.
 
 **DOC or DOCX conversion fails.** Install LibreOffice locally and restart the backend so document conversion commands are available on the process path.
 
+## Cost Tracking
+
+Mike records the token usage and AUD cost of every LLM query and displays a cost badge under each assistant response. Costs are stored in the `query_costs` Supabase table and summarised on the Admin page.
+
+### Pricing configuration
+
+`backend/src/lib/pricing.ts` contains a `MODEL_PRICES` table with the **publicly listed retail rates** for each supported model. If you are on an enterprise plan, a committed-use discount, or any negotiated rate that differs from retail, update the `inputPerMToken` and `outputPerMToken` values for each model to match your actual contracted price before deploying:
+
+```typescript
+// backend/src/lib/pricing.ts
+const MODEL_PRICES: Record<string, ModelPrice> = {
+    "claude-sonnet-4-6": { inputPerMToken: 3.00, outputPerMToken: 15.00 },
+    // …
+};
+```
+
+Prices are in **USD per million tokens**. Check your provider billing dashboard or contract for the exact figures.
+
+### Currency
+
+Cost badges and the Admin dashboard show costs in AUD. The conversion rate is fetched once per day from `open.er-api.com/v6/latest/USD` and cached in memory; the fallback rate is 1.55. To display a different currency, update `getAudRate()` in `backend/src/lib/pricing.ts` — change the fetch URL to your currency pair and rename the `costAud` / `aud_rate` fields as needed throughout the codebase.
+
+### Running the migration
+
+The `query_costs` table is created by `supabase/migrations/20240705_query_costs.sql`. Run it in the Supabase SQL Editor for your project (or apply it via the Supabase CLI) before starting the backend for the first time. For existing deployments, this is an additive migration that is safe to apply at any time.
+
 ## Useful Checks
 
 ```bash
