@@ -134,6 +134,14 @@ npm install --prefix frontend
 
 ## Run Locally
 
+### Quick start (macOS)
+
+A double-click launcher is included: **`Start Mike.command`** (in the repo root). Double-clicking it in Finder opens Terminal, starts the backend and frontend dev servers in two tabs (sourcing `nvm` so `npm` is available), waits a few seconds, and opens `http://localhost:3000` in your browser. It assumes the repo lives at `~/mike-OSS`. Close the Terminal tabs to stop the servers.
+
+If macOS blocks it the first time, either right-click → **Open**, or make it executable once with `chmod +x "Start Mike.command"`.
+
+### Manual start
+
 Start the backend:
 
 ```bash
