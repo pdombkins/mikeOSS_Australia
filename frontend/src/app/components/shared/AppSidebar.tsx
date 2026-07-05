@@ -149,7 +149,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                     shouldAnimate ? "sidebar-fade-in" : ""
                                 }`}
                             >
-                                Mike
+                                Mike (Australia)
                             </span>
                         </Link>
                     </div>
