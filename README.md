@@ -1,6 +1,8 @@
-# Mike
+# Mike (Australia)
 
-Mike is a legal document assistant with a Next.js frontend, an Express backend, Supabase Auth/Postgres, and Cloudflare R2-compatible object storage.
+Mike is an Australian legal document assistant with a Next.js frontend, an Express backend, Supabase Auth/Postgres, and Cloudflare R2-compatible object storage.
+
+This is the Australian fork of Mike OSS, configured specifically for Australian and New Zealand law. It queries **AustLII** (Australasian Legal Information Institute) and **Jade.io** directly for case law and legislation — no third-party MCP wrapper is used. Jade.io is the primary source for citation validation because AustLII blocks programmatic access inconsistently; both are checked in parallel and either a Jade.io or AustLII confirmation is sufficient to verify a citation. AustLII remains the canonical link source and is used for legislation search and document fetch when accessible. Citations are formatted per AGLC4 (Australian Guide to Legal Citation, 4th edition).
 
 Website: [mikeoss.com](https://mikeoss.com)
 

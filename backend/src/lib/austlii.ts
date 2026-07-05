@@ -503,6 +503,16 @@ export async function searchAustliiLegislation(args: {
   });
 
   if (!response.ok) {
+    // AustLII blocked or unavailable — return a Jade.io search stub
+    if (response.status === 403 || response.status === 429 || response.status === 503) {
+      const jadeSearchUrl = `${JADE_BASE}/search?query=${encodeURIComponent(args.query)}&type=legislation`;
+      return [{
+        title: `AustLII unavailable (HTTP ${response.status}) — search Jade.io instead`,
+        url: jadeSearchUrl,
+        jadeUrl: jadeSearchUrl,
+        type: "legislation",
+      }];
+    }
     throw new Error(`AustLII legislation search failed: HTTP ${response.status}`);
   }
 
@@ -511,7 +521,16 @@ export async function searchAustliiLegislation(args: {
 }
 
 /**
- * Validate an Australian neutral citation by checking it exists on AustLII.
+ * Validate an Australian neutral citation.
+ *
+ * Strategy: Jade.io and AustLII are checked in parallel.
+ * Jade.io is treated as primary because live testing shows it reliably
+ * returns HTTP 200 for all valid MNC URLs, whereas AustLII's CGI endpoints
+ * block programmatic access inconsistently (HTTP 403 on most requests
+ * regardless of URL format or HTTP method). The canonical AustLII URL is
+ * always included in the result for human-readable linking even when
+ * AustLII itself is inaccessible.
+ *
  * Example: "[2024] HCA 5"
  */
 export async function validateAustliiCitation(
@@ -536,72 +555,60 @@ export async function validateAustliiCitation(
     };
   }
 
-  const url = `${AUSTLII_DOC_BASE}/cgi-bin/viewdoc/${path}/${year}/${num}.html`;
+  const austliiUrl = `${AUSTLII_DOC_BASE}/cgi-bin/viewdoc/${path}/${year}/${num}.html`;
+  const jadeUrl    = buildJadeUrl(year!, court!, num!);
 
   await throttle();
 
-  const jadeUrl = buildJadeUrl(year!, court!, num!);
-
-  try {
-    const response = await fetch(url, {
+  // Check both sources in parallel — Jade.io is primary.
+  const [jadeVerified, austliiOk] = await Promise.all([
+    verifyJadeUrl(jadeUrl),
+    fetch(austliiUrl, {
       method: "HEAD",
       headers: { "User-Agent": AUSTLII_USER_AGENT },
       signal: AbortSignal.timeout(10_000),
-    });
+    })
+      .then((r) => r.ok || r.status === 301 || r.status === 302)
+      .catch(() => false),
+  ]);
 
-    if (response.ok || response.status === 301 || response.status === 302) {
-      return {
-        valid: true,
-        neutralCitation: normalised,
-        austliiUrl: url,
-        jadeUrl,
-        message: "Citation verified — document exists on AustLII",
-        source: "austlii",
-      };
-    }
-
-    // AustLII returned an error — try Jade.io as fallback
-    const jadeVerified = await verifyJadeUrl(jadeUrl);
-    if (jadeVerified) {
-      return {
-        valid: true,
-        neutralCitation: normalised,
-        austliiUrl: url,
-        jadeUrl,
-        jadeVerified: true,
-        message: `Citation not found on AustLII (HTTP ${response.status}) but verified on Jade.io`,
-        source: "jade",
-      };
-    }
-
+  if (jadeVerified || austliiOk) {
+    const source: "austlii" | "jade" = austliiOk ? "austlii" : "jade";
+    const message =
+      austliiOk && jadeVerified
+        ? "Citation verified on AustLII and Jade.io"
+        : austliiOk
+          ? "Citation verified on AustLII"
+          : "Citation verified on Jade.io";
     return {
-      valid: false,
+      valid: true,
       neutralCitation: normalised,
-      austliiUrl: url,
-      jadeUrl,
-      jadeVerified: false,
-      message: `Citation not found on AustLII (HTTP ${response.status}) or Jade.io`,
-    };
-  } catch {
-    // AustLII unreachable — try Jade.io
-    const jadeVerified = await verifyJadeUrl(jadeUrl);
-    return {
-      valid: jadeVerified,
-      neutralCitation: normalised,
-      austliiUrl: url,
+      austliiUrl,
       jadeUrl,
       jadeVerified,
-      message: jadeVerified
-        ? "AustLII unreachable — citation verified on Jade.io instead"
-        : "Could not reach AustLII or Jade.io to verify citation",
-      source: jadeVerified ? "jade" : undefined,
+      message,
+      source,
     };
   }
+
+  return {
+    valid: false,
+    neutralCitation: normalised,
+    austliiUrl,
+    jadeUrl,
+    jadeVerified: false,
+    message: "Citation could not be verified on AustLII or Jade.io",
+  };
 }
 
 /**
  * Fetch the text of an AustLII document (judgment or legislation section).
  * Only AustLII URLs are permitted.
+ *
+ * Strategy: Jade.io is attempted first for case URLs because AustLII blocks
+ * programmatic access with HTTP 403 on most requests. AustLII is tried as a
+ * fallback (it occasionally allows access and is the canonical source for
+ * legislation). If both fail the caller receives a helpful error message.
  */
 export async function fetchAustliiDocument(
   url: string,
@@ -617,6 +624,18 @@ export async function fetchAustliiDocument(
     throw new Error("Only austlii.edu.au URLs are permitted for document fetch");
   }
 
+  // Extract MNC components from the AustLII URL for Jade.io lookup.
+  const courtFromPath = url.match(/\/cases\/(?:cth|nsw|vic|qld|sa|wa|tas|nt|act|nz)\/([A-Za-z0-9]+)\//i)?.[1];
+  const yearFromPath  = url.match(/\/(\d{4})\/\d+\.html/)?.[1];
+  const numFromPath   = url.match(/\/(\d+)\.html$/)?.[1];
+  const isCase        = url.includes("/cases/");
+
+  // For case documents, try Jade.io first (AustLII 403s are common).
+  if (isCase && courtFromPath && yearFromPath && numFromPath) {
+    const jadeDoc = await fetchJadeDocument(yearFromPath, courtFromPath, numFromPath);
+    if (jadeDoc) return jadeDoc;
+  }
+
   await throttle();
 
   const response = await fetch(url, {
@@ -629,21 +648,17 @@ export async function fetchAustliiDocument(
   });
 
   if (!response.ok) {
-    // AustLII blocked — try to derive a Jade.io MNC URL and fetch from there
-    const mncMatch = url.match(/\/(\d{4})\/(\d+)\.html/) ??
-      url.match(/viewdoc\/([a-z]+\/cases\/[a-z]+\/([A-Za-z]+))\/(\d{4})\/(\d+)/i);
-    const courtFromPath = url.match(/\/cases\/(?:cth|nsw|vic|qld|sa|wa|tas|nt|act|nz)\/([A-Za-z0-9]+)\//i)?.[1];
-    const yearFromPath = url.match(/\/(\d{4})\/\d+\.html/)?.[1];
-    const numFromPath = url.match(/\/(\d+)\.html$/)?.[1];
-
-    if (courtFromPath && yearFromPath && numFromPath) {
+    // AustLII blocked — try Jade.io for non-case documents (e.g. legislation)
+    // using whatever MNC components we can derive.
+    if (!isCase && courtFromPath && yearFromPath && numFromPath) {
       const jadeDoc = await fetchJadeDocument(yearFromPath, courtFromPath, numFromPath);
       if (jadeDoc) return jadeDoc;
     }
 
+    const jadeSearch = `${JADE_BASE}/t/browse`;
     throw new Error(
       `Failed to fetch AustLII document (HTTP ${response.status}). ` +
-      `Try Jade.io instead: ${JADE_BASE}/t/browse`,
+      `Browse Jade.io instead: ${jadeSearch}`,
     );
   }
 
