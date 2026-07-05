@@ -152,6 +152,13 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                 Mike (Australia)
                             </span>
                         </Link>
+                        <p
+                            className={`mt-0.5 pl-0.5 text-[10px] leading-tight text-gray-500 ${
+                                shouldAnimate ? "sidebar-fade-in-2" : ""
+                            }`}
+                        >
+                            For research and educational purposes only
+                        </p>
                     </div>
                 )}
                 <button

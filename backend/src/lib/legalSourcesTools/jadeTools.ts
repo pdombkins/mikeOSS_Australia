@@ -1,86 +1,87 @@
 /**
- * AustLII tool definitions, system prompt, and event types for Mike OSS.
+ * Jade.io tool definitions, system prompt, and event types for Mike OSS.
  *
- * These mirror the CourtListener tools pattern in courtlistenerTools.ts —
+ * ⚠️  RESEARCH & EDUCATIONAL USE ONLY. Jade.io (BarNet) requires prior written
+ * permission for automated access — obtain it before enabling these tools in a
+ * deployment.
+ *
+ * Structure mirrors the CourtListener tools pattern in courtlistenerTools.ts —
  * a named const for tool names, a TOOLS array in OpenAI function-calling
  * format, and a system prompt to splice into the assistant instructions.
  */
 
 // ── Event types (streamed to the frontend) ────────────────────────────────────
 
-export type AustliiToolEvent =
+export type JadeToolEvent =
   | {
-      type: "austlii_search_cases";
+      type: "jade_search_cases";
       query: string;
       jurisdiction?: string;
       result_count: number;
       error?: string;
     }
   | {
-      type: "austlii_search_legislation";
+      type: "jade_search_legislation";
       query: string;
       jurisdiction?: string;
       result_count: number;
       error?: string;
     }
   | {
-      type: "austlii_validate_citation";
+      type: "jade_validate_citation";
       citation: string;
       valid: boolean;
-      austliiUrl?: string;
+      jadeUrl?: string;
       error?: string;
     }
   | {
-      type: "austlii_fetch_document";
+      type: "jade_fetch_document";
       url: string;
       paragraph_count: number;
       error?: string;
     }
   | {
-      type: "austlii_format_citation";
+      type: "jade_format_citation";
       caseName: string;
       result: string;
     };
 
-export type AustliiCaseCitationEvent = {
+export type JadeCaseCitationEvent = {
   type: "au_case_citation";
   caseName: string | null;
   neutralCitation: string | null;
   reportedCitation?: string | null;
-  austliiUrl: string;
+  jadeUrl: string;
 };
 
 // ── Tool name constants ────────────────────────────────────────────────────────
 
-export const AUSTLII_TOOL_NAMES = {
-  searchCases: "austlii_search_cases",
-  searchLegislation: "austlii_search_legislation",
-  validateCitation: "austlii_validate_citation",
-  fetchDocument: "austlii_fetch_document",
-  formatCitation: "austlii_format_citation",
+export const JADE_TOOL_NAMES = {
+  searchCases: "jade_search_cases",
+  searchLegislation: "jade_search_legislation",
+  validateCitation: "jade_validate_citation",
+  fetchDocument: "jade_fetch_document",
+  formatCitation: "jade_format_citation",
 } as const;
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-export const AUSTLII_SYSTEM_PROMPT = `AUSTRALIAN & NEW ZEALAND LAW RESEARCH (AustLII + Jade.io fallback):
-Use AustLII tools when answering questions that require Australian or New Zealand case law or legislation.
+export const JADE_SYSTEM_PROMPT = `AUSTRALIAN & NEW ZEALAND LAW RESEARCH (Jade.io):
+Use the Jade tools when answering questions that require Australian or New Zealand case law or legislation.
 
 Available jurisdictions: cth (Commonwealth), nsw, vic, qld, sa, wa, tas, nt, act, nz, or omit for all jurisdictions.
 
 Workflow:
-1. If you have neutral citations (e.g. [2024] HCA 5), verify them with austlii_validate_citation first.
-2. Search for cases by topic or case name with austlii_search_cases.
-3. Search for legislation by name or topic with austlii_search_legislation.
-4. If you need the full text of a judgment or legislation, fetch it with austlii_fetch_document using the AustLII URL.
-5. Format citations per AGLC4 with austlii_format_citation when needed.
+1. If you have neutral citations (e.g. [2024] HCA 5), verify them with jade_validate_citation first.
+2. Search for cases by topic or case name with jade_search_cases.
+3. Search for legislation by name or topic with jade_search_legislation.
+4. If you need the full text of a judgment, fetch it with jade_fetch_document using a Jade.io MNC URL (e.g. https://jade.io/mnc/2024/hca/5).
+5. Format citations per AGLC4 with jade_format_citation when needed.
 
-Jade.io fallback:
-- Search results include a jadeUrl field alongside the AustLII URL. If AustLII is unavailable, use the jadeUrl.
-- Citation validation results include jadeUrl and jadeVerified fields. If source is "jade", the citation was verified on Jade.io.
-- Jade.io uses clean MNC URLs: [2024] HCA 5 → https://jade.io/mnc/2024/hca/5
-- When citing a case, prefer linking to AustLII but fall back to Jade.io if the austliiUrl is unavailable:
-  [CaseName](austliiUrl) or [CaseName](jadeUrl)
-- If austlii_fetch_document fails and returns a Jade.io URL in the error message, direct the user to that URL.
+Jade.io links:
+- Jade uses clean MNC URLs: [2024] HCA 5 → https://jade.io/mnc/2024/hca/5
+- When citing a case, link to its Jade.io URL: [CaseName](jadeUrl)
+- jade_search_cases / jade_search_legislation return a Jade.io link for the user to open; they do not return full result lists.
 
 Citation rules (AGLC4):
 - Neutral citations take the form: [YYYY] COURT N — e.g. [2024] HCA 5, [2023] NSWCA 47
@@ -90,19 +91,19 @@ Citation rules (AGLC4):
 - Always verify citations before relying on them — do not invent or guess case names or citations.
 
 Limits:
-- Do not call austlii_fetch_document more than 3 times per assistant turn.
-- AustLII is rate-limited — if you receive a timeout or error, use information already available or direct the user to Jade.io.
-- AustLII does not include all unreported decisions; for comprehensive coverage of a matter, note this limitation.`;
+- Do not call jade_fetch_document more than 3 times per assistant turn.
+- Jade.io access is rate-limited and requires permission — if you receive a timeout or error, use information already available or direct the user to the Jade.io link.
+- Coverage may not include all unreported decisions; note this limitation where relevant.`;
 
 // ── Tool schemas (OpenAI function-calling format) ─────────────────────────────
 
-export const AUSTLII_TOOLS = [
+export const JADE_TOOLS = [
   {
     type: "function",
     function: {
-      name: AUSTLII_TOOL_NAMES.searchCases,
+      name: JADE_TOOL_NAMES.searchCases,
       description:
-        "Search AustLII for Australian and New Zealand case law. Supports topic searches (e.g. 'duty of care negligence'), case-name searches (e.g. 'Mabo v Queensland'), and neutral citation lookups (e.g. '[2024] HCA 5'). Results are ranked by court hierarchy (HCA > FCAFC > FCA > state courts) for case-name queries, and by date for topic queries.",
+        "Search Jade.io for Australian and New Zealand case law. Supports topic searches (e.g. 'duty of care negligence'), case-name searches (e.g. 'Mabo v Queensland'), and neutral citation lookups (e.g. '[2024] HCA 5'). Returns a Jade.io link to open; for a neutral citation it returns the direct Jade MNC link.",
       parameters: {
         type: "object",
         properties: {
@@ -128,7 +129,7 @@ export const AUSTLII_TOOLS = [
               "other",
             ],
             description:
-              "Jurisdiction filter. 'cth' and 'federal' both return Commonwealth/federal court decisions (HCA, FCA, FCAFC). Omit to search all Australian jurisdictions.",
+              "Jurisdiction filter. 'cth' and 'federal' both refer to Commonwealth/federal courts (HCA, FCA, FCAFC). Omit to search all Australian jurisdictions.",
           },
           limit: {
             type: "integer",
@@ -148,9 +149,9 @@ export const AUSTLII_TOOLS = [
   {
     type: "function",
     function: {
-      name: AUSTLII_TOOL_NAMES.searchLegislation,
+      name: JADE_TOOL_NAMES.searchLegislation,
       description:
-        "Search AustLII for Australian and New Zealand legislation — Acts, Regulations, and other instruments. Use to find the current text of an Act (e.g. 'Corporations Act 2001'), check if legislation exists, or find instruments on a topic.",
+        "Search Jade.io for Australian and New Zealand legislation — Acts, Regulations, and other instruments. Use to find the current text of an Act (e.g. 'Corporations Act 2001'), check if legislation exists, or find instruments on a topic. Returns a Jade.io link to open.",
       parameters: {
         type: "object",
         properties: {
@@ -176,9 +177,9 @@ export const AUSTLII_TOOLS = [
   {
     type: "function",
     function: {
-      name: AUSTLII_TOOL_NAMES.validateCitation,
+      name: JADE_TOOL_NAMES.validateCitation,
       description:
-        "Verify that an Australian neutral citation exists on AustLII. Pass a neutral citation in the format [YYYY] COURT N (e.g. '[2024] HCA 5', '[2023] NSWCA 47'). Returns whether the citation is valid and the canonical AustLII URL. Use before citing any case to confirm it exists.",
+        "Verify that an Australian neutral citation exists on Jade.io. Pass a neutral citation in the format [YYYY] COURT N (e.g. '[2024] HCA 5', '[2023] NSWCA 47'). Returns whether the citation is valid and the canonical Jade.io URL. Use before citing any case to confirm it exists.",
       parameters: {
         type: "object",
         properties: {
@@ -195,16 +196,16 @@ export const AUSTLII_TOOLS = [
   {
     type: "function",
     function: {
-      name: AUSTLII_TOOL_NAMES.fetchDocument,
+      name: JADE_TOOL_NAMES.fetchDocument,
       description:
-        "Fetch the full text of an AustLII judgment or legislation document from a URL returned by austlii_search_cases or austlii_search_legislation. Returns the text with paragraph numbers preserved for pinpoint citations. Use when search result summaries are not enough to answer the question. Limit: 3 calls per turn.",
+        "Fetch the full text of a judgment from a Jade.io MNC URL (e.g. https://jade.io/mnc/2024/hca/5). Returns the text with paragraph numbers preserved for pinpoint citations. Use when search result summaries are not enough to answer the question. Limit: 3 calls per turn.",
       parameters: {
         type: "object",
         properties: {
           url: {
             type: "string",
             description:
-              "AustLII document URL (must be a www.austlii.edu.au URL from a prior search result).",
+              "Jade.io document URL (must be a jade.io MNC URL, e.g. https://jade.io/mnc/2024/hca/5).",
           },
         },
         required: ["url"],
@@ -214,7 +215,7 @@ export const AUSTLII_TOOLS = [
   {
     type: "function",
     function: {
-      name: AUSTLII_TOOL_NAMES.formatCitation,
+      name: JADE_TOOL_NAMES.formatCitation,
       description:
         "Format an Australian case citation per AGLC4 (Australian Guide to Legal Citation, 4th edition). Combines case name, neutral citation, reported citation, and pinpoint reference into the correct format.",
       parameters: {

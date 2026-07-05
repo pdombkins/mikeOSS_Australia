@@ -1,8 +1,11 @@
 /**
- * /austlii — REST endpoints for AustLII case law and legislation search.
+ * /jade — REST endpoints for Jade.io case law and legislation lookups.
  *
- * These endpoints are consumed by the frontend for displaying search results
- * and are also called internally from the AI tool dispatch in chatTools.ts.
+ * These endpoints are consumed by the frontend and are also called internally
+ * from the AI tool dispatch in chatTools.ts.
+ *
+ * ⚠️  RESEARCH & EDUCATIONAL USE ONLY. Jade.io requires prior written
+ * permission for automated access — obtain it before enabling in a deployment.
  *
  * All routes require authentication via the standard Mike requireAuth middleware.
  */
@@ -10,16 +13,16 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import {
-  searchAustliiCases,
-  searchAustliiLegislation,
-  validateAustliiCitation,
-  fetchAustliiDocument,
+  searchJadeCases,
+  searchJadeLegislation,
+  validateJadeCitation,
+  fetchJadeDocument,
   formatAGLC4Citation,
   type Jurisdiction,
-} from "../lib/austlii";
+} from "../lib/jade";
 
-export const austliiRouter = Router();
-austliiRouter.use(requireAuth);
+export const jadeRouter = Router();
+jadeRouter.use(requireAuth);
 
 const isDev = process.env.NODE_ENV !== "production";
 const devLog = (...args: Parameters<typeof console.log>) => {
@@ -41,9 +44,9 @@ function parseLimit(value: unknown): number {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : 10;
 }
 
-// ── GET /austlii/search/cases ─────────────────────────────────────────────────
+// ── GET /jade/search/cases ────────────────────────────────────────────────────
 
-austliiRouter.get("/search/cases", async (req, res) => {
+jadeRouter.get("/search/cases", async (req, res) => {
   const query = typeof req.query.query === "string" ? req.query.query.trim() : "";
   if (!query) {
     return res.status(400).json({ detail: "query is required" });
@@ -55,10 +58,10 @@ austliiRouter.get("/search/cases", async (req, res) => {
     ? req.query.sortBy
     : "auto";
 
-  devLog("[austlii/search/cases]", { query, jurisdiction, limit, sortBy });
+  devLog("[jade/search/cases]", { query, jurisdiction, limit, sortBy });
 
   try {
-    const results = await searchAustliiCases({
+    const results = await searchJadeCases({
       query,
       jurisdiction,
       limit,
@@ -66,15 +69,15 @@ austliiRouter.get("/search/cases", async (req, res) => {
     });
     return res.json({ query, jurisdiction, results });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "AustLII search failed";
-    devLog("[austlii/search/cases] error", message);
+    const message = err instanceof Error ? err.message : "Jade.io search failed";
+    devLog("[jade/search/cases] error", message);
     return res.status(502).json({ detail: message });
   }
 });
 
-// ── GET /austlii/search/legislation ──────────────────────────────────────────
+// ── GET /jade/search/legislation ──────────────────────────────────────────────
 
-austliiRouter.get("/search/legislation", async (req, res) => {
+jadeRouter.get("/search/legislation", async (req, res) => {
   const query = typeof req.query.query === "string" ? req.query.query.trim() : "";
   if (!query) {
     return res.status(400).json({ detail: "query is required" });
@@ -83,30 +86,30 @@ austliiRouter.get("/search/legislation", async (req, res) => {
   const jurisdiction = parseJurisdiction(req.query.jurisdiction);
   const limit = parseLimit(req.query.limit);
 
-  devLog("[austlii/search/legislation]", { query, jurisdiction, limit });
+  devLog("[jade/search/legislation]", { query, jurisdiction, limit });
 
   try {
-    const results = await searchAustliiLegislation({ query, jurisdiction, limit });
+    const results = await searchJadeLegislation({ query, jurisdiction, limit });
     return res.json({ query, jurisdiction, results });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "AustLII legislation search failed";
+    const message = err instanceof Error ? err.message : "Jade.io legislation search failed";
     return res.status(502).json({ detail: message });
   }
 });
 
-// ── GET /austlii/validate-citation ────────────────────────────────────────────
+// ── GET /jade/validate-citation ───────────────────────────────────────────────
 
-austliiRouter.get("/validate-citation", async (req, res) => {
+jadeRouter.get("/validate-citation", async (req, res) => {
   const citation =
     typeof req.query.citation === "string" ? req.query.citation.trim() : "";
   if (!citation) {
     return res.status(400).json({ detail: "citation is required" });
   }
 
-  devLog("[austlii/validate-citation]", { citation });
+  devLog("[jade/validate-citation]", { citation });
 
   try {
-    const result = await validateAustliiCitation(citation);
+    const result = await validateJadeCitation(citation);
     return res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Citation validation failed";
@@ -114,9 +117,9 @@ austliiRouter.get("/validate-citation", async (req, res) => {
   }
 });
 
-// ── POST /austlii/fetch-document ──────────────────────────────────────────────
+// ── POST /jade/fetch-document ─────────────────────────────────────────────────
 
-austliiRouter.post("/fetch-document", async (req, res) => {
+jadeRouter.post("/fetch-document", async (req, res) => {
   const body =
     req.body && typeof req.body === "object" && !Array.isArray(req.body)
       ? (req.body as Record<string, unknown>)
@@ -127,23 +130,23 @@ austliiRouter.post("/fetch-document", async (req, res) => {
     return res.status(400).json({ detail: "url is required" });
   }
 
-  devLog("[austlii/fetch-document]", { url });
+  devLog("[jade/fetch-document]", { url });
 
   try {
-    const result = await fetchAustliiDocument(url);
+    const result = await fetchJadeDocument(url);
     return res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Document fetch failed";
-    if (message.includes("Only austlii.edu.au")) {
+    if (message.includes("Only jade.io")) {
       return res.status(400).json({ detail: message });
     }
     return res.status(502).json({ detail: message });
   }
 });
 
-// ── POST /austlii/format-citation ─────────────────────────────────────────────
+// ── POST /jade/format-citation ────────────────────────────────────────────────
 
-austliiRouter.post("/format-citation", async (req, res) => {
+jadeRouter.post("/format-citation", async (req, res) => {
   const body =
     req.body && typeof req.body === "object" && !Array.isArray(req.body)
       ? (req.body as Record<string, unknown>)

@@ -31,19 +31,19 @@ import {
   type CourtlistenerToolEvent,
 } from "./legalSourcesTools/courtlistenerTools";
 import {
-  AUSTLII_SYSTEM_PROMPT,
-  AUSTLII_TOOL_NAMES,
-  AUSTLII_TOOLS,
-  type AustliiToolEvent,
-  type AustliiCaseCitationEvent,
-} from "./legalSourcesTools/austliiTools";
+  JADE_SYSTEM_PROMPT,
+  JADE_TOOL_NAMES,
+  JADE_TOOLS,
+  type JadeToolEvent,
+  type JadeCaseCitationEvent,
+} from "./legalSourcesTools/jadeTools";
 import {
-  searchAustliiCases,
-  searchAustliiLegislation,
-  validateAustliiCitation,
-  fetchAustliiDocument,
+  searchJadeCases,
+  searchJadeLegislation,
+  validateJadeCitation,
+  fetchJadeDocument,
   formatAGLC4Citation,
-} from "./austlii";
+} from "./jade";
 import {
   buildUserMcpTools,
   executeMcpToolCall,
@@ -186,7 +186,7 @@ GENERAL GUIDANCE:
  */
 export function buildSystemPrompt(includeResearchTools = true): string {
   return includeResearchTools
-    ? `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${COURTLISTENER_SYSTEM_PROMPT}\n\n${AUSTLII_SYSTEM_PROMPT}\n${SYSTEM_PROMPT_AFTER_RESEARCH}`
+    ? `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${COURTLISTENER_SYSTEM_PROMPT}\n\n${JADE_SYSTEM_PROMPT}\n${SYSTEM_PROMPT_AFTER_RESEARCH}`
     : `${SYSTEM_PROMPT_BEFORE_RESEARCH}\n\n${SYSTEM_PROMPT_AFTER_RESEARCH}`;
 }
 
@@ -2322,8 +2322,8 @@ export async function runToolCalls(
   docsEdited: DocEditedResult[];
   courtlistenerEvents: CourtlistenerToolEvent[];
   caseCitationEvents: CaseCitationEvent[];
-  austliiEvents: AustliiToolEvent[];
-  auCaseCitationEvents: AustliiCaseCitationEvent[];
+  jadeEvents: JadeToolEvent[];
+  auCaseCitationEvents: JadeCaseCitationEvent[];
   mcpEvents: McpToolEvent[];
 }> {
   const toolResults: unknown[] = [];
@@ -2339,8 +2339,8 @@ export async function runToolCalls(
   const docsEdited: DocEditedResult[] = [];
   const courtlistenerEvents: CourtlistenerToolEvent[] = [];
   const caseCitationEvents: CaseCitationEvent[] = [];
-  const austliiEvents: AustliiToolEvent[] = [];
-  const auCaseCitationEvents: AustliiCaseCitationEvent[] = [];
+  const jadeEvents: JadeToolEvent[] = [];
+  const auCaseCitationEvents: JadeCaseCitationEvent[] = [];
   const mcpEvents: McpToolEvent[] = [];
   const courtState: CourtlistenerTurnState =
     courtlistenerState ??
@@ -3128,31 +3128,31 @@ export async function runToolCalls(
         });
       }
 
-    // ── AustLII (Australian law) tools ──────────────────────────────────────
+    // ── Jade.io (Australian law) tools ──────────────────────────────────────
 
-    } else if (tc.function.name === AUSTLII_TOOL_NAMES.searchCases) {
+    } else if (tc.function.name === JADE_TOOL_NAMES.searchCases) {
       const { query, jurisdiction, limit, sortBy } = args as {
         query?: string;
         jurisdiction?: string;
         limit?: number;
         sortBy?: "auto" | "relevance" | "date";
       };
-      const event: AustliiToolEvent = {
-        type: "austlii_search_cases",
+      const event: JadeToolEvent = {
+        type: "jade_search_cases",
         query: query ?? "",
         jurisdiction,
         result_count: 0,
       };
-      write(`data: ${JSON.stringify({ type: "austlii_search_cases_start", query })}\n\n`);
+      write(`data: ${JSON.stringify({ type: "jade_search_cases_start", query })}\n\n`);
       try {
-        const results = await searchAustliiCases({
+        const results = await searchJadeCases({
           query: query ?? "",
-          jurisdiction: jurisdiction as import("./austlii").Jurisdiction | undefined,
+          jurisdiction: jurisdiction as import("./jade").Jurisdiction | undefined,
           limit,
           sortBy,
         });
         event.result_count = results.length;
-        write(`data: ${JSON.stringify({ type: "austlii_search_cases_result", query, result_count: results.length })}\n\n`);
+        write(`data: ${JSON.stringify({ type: "jade_search_cases_result", query, result_count: results.length })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -3160,19 +3160,19 @@ export async function runToolCalls(
         });
         for (const r of results) {
           if (r.neutralCitation && r.url) {
-            const citEv: AustliiCaseCitationEvent = {
+            const citEv: JadeCaseCitationEvent = {
               type: "au_case_citation",
               caseName: r.title,
               neutralCitation: r.neutralCitation,
               reportedCitation: r.reportedCitation,
-              austliiUrl: r.url,
+              jadeUrl: r.jadeUrl ?? r.url,
             };
             write(`data: ${JSON.stringify(citEv)}\n\n`);
           }
         }
       } catch (err) {
-        event.error = err instanceof Error ? err.message : "AustLII search failed";
-        write(`data: ${JSON.stringify({ type: "austlii_search_cases_error", error: event.error })}\n\n`);
+        event.error = err instanceof Error ? err.message : "Jade.io search failed";
+        write(`data: ${JSON.stringify({ type: "jade_search_cases_error", error: event.error })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -3180,28 +3180,28 @@ export async function runToolCalls(
         });
       }
 
-    } else if (tc.function.name === AUSTLII_TOOL_NAMES.searchLegislation) {
+    } else if (tc.function.name === JADE_TOOL_NAMES.searchLegislation) {
       const { query, jurisdiction, limit } = args as {
         query?: string;
         jurisdiction?: string;
         limit?: number;
       };
-      write(`data: ${JSON.stringify({ type: "austlii_search_legislation_start", query })}\n\n`);
+      write(`data: ${JSON.stringify({ type: "jade_search_legislation_start", query })}\n\n`);
       try {
-        const results = await searchAustliiLegislation({
+        const results = await searchJadeLegislation({
           query: query ?? "",
-          jurisdiction: jurisdiction as import("./austlii").Jurisdiction | undefined,
+          jurisdiction: jurisdiction as import("./jade").Jurisdiction | undefined,
           limit,
         });
-        write(`data: ${JSON.stringify({ type: "austlii_search_legislation_result", query, result_count: results.length })}\n\n`);
+        write(`data: ${JSON.stringify({ type: "jade_search_legislation_result", query, result_count: results.length })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
           content: JSON.stringify({ query, result_count: results.length, results }),
         });
       } catch (err) {
-        const error = err instanceof Error ? err.message : "AustLII legislation search failed";
-        write(`data: ${JSON.stringify({ type: "austlii_search_legislation_error", error })}\n\n`);
+        const error = err instanceof Error ? err.message : "Jade.io legislation search failed";
+        write(`data: ${JSON.stringify({ type: "jade_search_legislation_error", error })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -3209,12 +3209,12 @@ export async function runToolCalls(
         });
       }
 
-    } else if (tc.function.name === AUSTLII_TOOL_NAMES.validateCitation) {
+    } else if (tc.function.name === JADE_TOOL_NAMES.validateCitation) {
       const { citation } = args as { citation?: string };
-      write(`data: ${JSON.stringify({ type: "austlii_validate_citation_start", citation })}\n\n`);
+      write(`data: ${JSON.stringify({ type: "jade_validate_citation_start", citation })}\n\n`);
       try {
-        const result = await validateAustliiCitation(citation ?? "");
-        write(`data: ${JSON.stringify({ type: "austlii_validate_citation_result", citation, valid: result.valid })}\n\n`);
+        const result = await validateJadeCitation(citation ?? "");
+        write(`data: ${JSON.stringify({ type: "jade_validate_citation_result", citation, valid: result.valid })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -3229,12 +3229,12 @@ export async function runToolCalls(
         });
       }
 
-    } else if (tc.function.name === AUSTLII_TOOL_NAMES.fetchDocument) {
+    } else if (tc.function.name === JADE_TOOL_NAMES.fetchDocument) {
       const { url } = args as { url?: string };
-      write(`data: ${JSON.stringify({ type: "austlii_fetch_document_start", url })}\n\n`);
+      write(`data: ${JSON.stringify({ type: "jade_fetch_document_start", url })}\n\n`);
       try {
-        const result = await fetchAustliiDocument(url ?? "");
-        write(`data: ${JSON.stringify({ type: "austlii_fetch_document_result", url, paragraph_count: result.paragraphs.length })}\n\n`);
+        const result = await fetchJadeDocument(url ?? "");
+        write(`data: ${JSON.stringify({ type: "jade_fetch_document_result", url, paragraph_count: result.paragraphs.length })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -3247,7 +3247,7 @@ export async function runToolCalls(
         });
       } catch (err) {
         const error = err instanceof Error ? err.message : "Document fetch failed";
-        write(`data: ${JSON.stringify({ type: "austlii_fetch_document_error", url, error })}\n\n`);
+        write(`data: ${JSON.stringify({ type: "jade_fetch_document_error", url, error })}\n\n`);
         toolResults.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -3255,7 +3255,7 @@ export async function runToolCalls(
         });
       }
 
-    } else if (tc.function.name === AUSTLII_TOOL_NAMES.formatCitation) {
+    } else if (tc.function.name === JADE_TOOL_NAMES.formatCitation) {
       const { caseName, neutralCitation, reportedCitation, pinpoint } = args as {
         caseName?: string;
         neutralCitation?: string;
@@ -3824,7 +3824,7 @@ export async function runToolCalls(
     docsEdited,
     courtlistenerEvents,
     caseCitationEvents,
-    austliiEvents,
+    jadeEvents,
     auCaseCitationEvents,
     mcpEvents,
   };
@@ -4139,7 +4139,7 @@ export async function runLLMStream(params: {
     costSource = "assistant",
     chatId,
   } = params;
-  const researchTools = includeResearchTools ? [...COURTLISTENER_TOOLS, ...AUSTLII_TOOLS] : [];
+  const researchTools = includeResearchTools ? [...COURTLISTENER_TOOLS, ...JADE_TOOLS] : [];
   const mcpTools = await buildUserMcpTools(userId, db);
   const baseTools = [...TOOLS, ...researchTools, ...WORKFLOW_TOOLS];
   const activeTools = extraTools?.length

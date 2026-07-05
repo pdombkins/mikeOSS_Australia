@@ -12,7 +12,7 @@ import { workflowsRouter } from "./routes/workflows";
 import { userRouter } from "./routes/user";
 import { downloadsRouter } from "./routes/downloads";
 import { caseLawRouter } from "./routes/caseLaw";
-import { austliiRouter } from "./routes/austlii";
+import { jadeRouter } from "./routes/jade";
 import { adminRouter } from "./routes/admin";
 
 const app = express();
@@ -157,7 +157,7 @@ app.use("/user", userRouter);
 app.use("/users", userRouter);
 app.use("/download", downloadsRouter);
 app.use("/case-law", caseLawRouter);
-app.use("/austlii", austliiRouter);
+app.use("/jade", jadeRouter);
 app.use("/admin", adminRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));

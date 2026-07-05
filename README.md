@@ -1,8 +1,14 @@
 # Mike (Australia)
 
+> ⚠️ **For research and educational purposes only.**
+>
+> Mike (Australia) is a university teaching and research project. It is **not** intended for commercial use, and it does **not** provide legal advice.
+>
+> Mike integrates with **Jade.io** (BarNet) for Australian case-law citation validation and judgment retrieval. Jade.io's [Acceptable Use Policy](https://ppp.jade.io/acceptable-use-policy) **prohibits automated access without BarNet's prior written permission**. **You must obtain written permission from Jade.io before using this software.**
+
 Mike is an Australian legal document assistant with a Next.js frontend, an Express backend, Supabase Auth/Postgres, and Cloudflare R2-compatible object storage.
 
-This is the Australian fork of Mike OSS, configured specifically for Australian and New Zealand law. It queries **AustLII** (Australasian Legal Information Institute) and **Jade.io** directly for case law and legislation — no third-party MCP wrapper is used. Jade.io is the primary source for citation validation because AustLII blocks programmatic access inconsistently; both are checked in parallel and either a Jade.io or AustLII confirmation is sufficient to verify a citation. AustLII remains the canonical link source and is used for legislation search and document fetch when accessible. Citations are formatted per AGLC4 (Australian Guide to Legal Citation, 4th edition).
+This is the Australian fork of Mike OSS, configured specifically for Australian and New Zealand law. It integrates with **Jade.io** for case-law citation validation and judgment retrieval, and formats citations per AGLC4 (Australian Guide to Legal Citation, 4th edition). Automated access to Jade.io requires BarNet's prior written permission (see the notice above). **AustLII is not used by this project.**
 
 Website: [mikeoss.com](https://mikeoss.com)
 
