@@ -115,6 +115,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             setProfile({
                 displayName: null,
                 organisation: null,
+                isAdmin: false,
                 messageCreditsUsed: 0,
                 creditsResetDate: futureResetDate.toISOString(),
                 creditsRemaining: 999999, // temporarily unlimited

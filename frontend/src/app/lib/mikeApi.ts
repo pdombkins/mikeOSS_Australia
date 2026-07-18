@@ -334,6 +334,7 @@ export async function adminUpdateSettings(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),
     });
+}
 
 export interface UserLookupResult {
     exists: boolean;

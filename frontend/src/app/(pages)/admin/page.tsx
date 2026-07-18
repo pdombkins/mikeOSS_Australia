@@ -16,7 +16,7 @@ import {
     ChevronUp,
     Scale,
 } from "lucide-react";
-import { useUserProfile } from "@/contexts/UserProfileContext";
+import { useUserProfile } from "@/app/contexts/UserProfileContext";
 import {
     adminListUsers,
     adminRemoveUser,
