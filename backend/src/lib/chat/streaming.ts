@@ -17,6 +17,8 @@ import {
 } from "./tools/courtlistenerTools";
 import { JADE_TOOLS } from "./tools/jadeTools";
 import { VERIFICATION_TOOLS } from "./tools/verificationTools";
+import { KNOWLEDGE_TOOLS, PLAYBOOK_TOOLS } from "./tools/kbTools";
+import { isKnowledgeBaseConfigured } from "../knowledgeBase";
 import { calculateCostAud } from "../pricing";
 import {
   type DocStore,
@@ -198,7 +200,14 @@ export async function runLLMStream(params: {
     ? [...JADE_TOOLS, ...VERIFICATION_TOOLS]
     : [];
   const mcpTools = await buildUserMcpTools(userId, db);
-  const baseTools = [...TOOLS, ...researchTools, ...WORKFLOW_TOOLS];
+  const kbTools = isKnowledgeBaseConfigured() ? KNOWLEDGE_TOOLS : [];
+  const baseTools = [
+    ...TOOLS,
+    ...researchTools,
+    ...WORKFLOW_TOOLS,
+    ...kbTools,
+    ...PLAYBOOK_TOOLS,
+  ];
   const activeTools = extraTools?.length
     ? [...baseTools, ...mcpTools, ...extraTools]
     : [...baseTools, ...mcpTools];

@@ -7,6 +7,11 @@ import {
   attachLatestVersionNumbers,
 } from "../lib/documentVersions";
 import { singleFileUpload } from "../lib/upload";
+import { ingestDocument } from "../lib/knowledgeBase";
+import {
+  loadCurrentVersionBytes,
+  extractPdfText,
+} from "../lib/chat/tools/documentOps";
 import { handleDocumentUpload } from "./documents";
 
 export const libraryRouter = Router();
@@ -412,3 +417,75 @@ libraryRouter.patch(
     res.json(mapLibraryDocument({ ...updated, filename }));
   },
 );
+
+// ── Knowledge base ────────────────────────────────────────────────────────────
+// POST /library/:documentId/index — chunk + embed a Library document into the
+// private knowledge base (kb_documents/kb_chunks), so search_knowledge can
+// ground answers in it. The Library stays the single home for documents; the
+// KB is just its semantic index.
+libraryRouter.post("/:documentId/index", requireAuth, async (req, res) => {
+  const userId = (req as unknown as { userId: string }).userId;
+  const { documentId } = req.params;
+  const docType =
+    typeof req.body?.doc_type === "string" ? req.body.doc_type : undefined;
+  const db = createServerSupabase();
+  try {
+    const { data: doc } = await db
+      .from("documents")
+      .select("id, filename, user_id")
+      .eq("id", documentId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!doc) return res.status(404).json({ error: "Document not found." });
+
+    const loaded = await loadCurrentVersionBytes(documentId, db);
+    if (!loaded)
+      return res.status(404).json({ error: "Document content not found." });
+
+    const filename = (doc.filename as string) ?? "document";
+    const lower = filename.toLowerCase();
+    let text: string;
+    if (lower.endsWith(".pdf")) {
+      text = await extractPdfText(
+        loaded.bytes.buffer.slice(
+          loaded.bytes.byteOffset,
+          loaded.bytes.byteOffset + loaded.bytes.byteLength,
+        ) as ArrayBuffer,
+      );
+    } else if (/\.(txt|md|csv|json|html?)$/.test(lower)) {
+      text = loaded.bytes.toString("utf8");
+    } else {
+      return res.status(415).json({
+        error:
+          "Only PDF and plain-text documents can be indexed at the moment.",
+      });
+    }
+
+    // Re-indexing: replace any previous KB entry for this Library document.
+    const { data: existing } = await db
+      .from("kb_documents")
+      .select("id")
+      .eq("owner_id", userId)
+      .eq("source", "library")
+      .eq("source_ref", documentId);
+    for (const row of existing ?? []) {
+      await db.from("kb_chunks").delete().eq("document_id", row.id);
+      await db.from("kb_documents").delete().eq("id", row.id);
+    }
+
+    const result = await ingestDocument({
+      db,
+      ownerId: userId,
+      title: filename,
+      text,
+      docType,
+      source: "library",
+      sourceRef: documentId,
+    });
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : "Indexing failed.",
+    });
+  }
+});

@@ -24,6 +24,9 @@ const MODEL_PRICES: Record<string, ModelPrice> = {
     "claude-sonnet-4-6": { inputPerMToken:  3.00, outputPerMToken: 15.00 },
     "claude-haiku-4-5":  { inputPerMToken:  1.00, outputPerMToken:  5.00 },
 
+    // Gemini embeddings (knowledge base; input-only, tokens estimated)
+    "gemini-embedding-001":          { inputPerMToken:  0.15, outputPerMToken:  0.00 },
+
     // Gemini (Standard paid tier)
     "gemini-3.5-flash":              { inputPerMToken:  1.50, outputPerMToken:  9.00 },
     "gemini-3.1-pro-preview":        { inputPerMToken:  2.00, outputPerMToken: 12.00 },

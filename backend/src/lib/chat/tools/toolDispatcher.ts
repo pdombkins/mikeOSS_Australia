@@ -24,6 +24,15 @@ import {
   formatAGLC4Citation,
 } from "../../jade";
 import { verifyCitation } from "../../verification";
+import {
+  searchKnowledge,
+  formatKnowledgeForModel,
+} from "../../knowledgeBase";
+import {
+  listPlaybooks,
+  getPlaybook,
+  formatPlaybookForModel,
+} from "../../playbooks";
 import { getJadeAccessApproved } from "../../appSettings";
 import {
   executeMcpToolCall,
@@ -637,6 +646,82 @@ export async function runToolCalls(
     if (tc.function.name === "ask_inputs") {
       const event = normalizeAskInputsEvent(args);
       if (event.items.length > 0) askInputsEvents.push(event);
+      continue;
+    }
+
+    if (tc.function.name === "search_knowledge") {
+      const kbQuery = typeof args.query === "string" ? args.query : "";
+      const docType = typeof args.doc_type === "string" ? args.doc_type : null;
+      const k = typeof args.k === "number" ? args.k : undefined;
+      let content: string;
+      try {
+        const hits = await searchKnowledge({
+          db,
+          ownerId: userId,
+          query: kbQuery,
+          k,
+          docType,
+          apiKeys,
+        });
+        content = formatKnowledgeForModel(kbQuery, hits);
+      } catch (err) {
+        content = `KNOWLEDGE BASE: search failed \u2014 ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    if (tc.function.name === "list_playbooks") {
+      let content: string;
+      try {
+        const pbs = await listPlaybooks(db, userId);
+        content = pbs.length
+          ? "Available playbooks:\n" +
+            pbs
+              .map(
+                (p) =>
+                  `- ${p.name}${p.agreement_type ? ` (${p.agreement_type})` : ""}${p.description ? ` \u2014 ${p.description}` : ""}`,
+              )
+              .join("\n")
+          : "No playbooks have been defined yet.";
+      } catch (err) {
+        content = `Could not list playbooks \u2014 ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    if (tc.function.name === "review_against_playbook") {
+      const pbName =
+        typeof args.playbook_name === "string" ? args.playbook_name : "";
+      let content: string;
+      try {
+        const pb = await getPlaybook(db, userId, pbName);
+        if (!pb) {
+          content = `No playbook named "${pbName}" was found. Use list_playbooks to see available playbooks.`;
+        } else {
+          content = formatPlaybookForModel(pb);
+          const rawDocId = typeof args.doc_id === "string" ? args.doc_id : "";
+          if (rawDocId) {
+            const docId =
+              resolveDocLabel(rawDocId, docStore, docIndex) ?? rawDocId;
+            const docText = await readDocumentContent(
+              docId,
+              docStore,
+              write,
+              docIndex,
+              db,
+            );
+            content += `\n\n== DOCUMENT UNDER REVIEW (${docStore.get(docId)?.filename ?? rawDocId}) ==\n${docText}`;
+          } else {
+            content +=
+              "\n\nReview the document already provided in this conversation against the positions above. For each relevant clause state: the playbook topic, what the document says, whether it MEETS / is a FALLBACK / is a DEALBREAKER deviation, the severity, and a suggested redline.";
+          }
+        }
+      } catch (err) {
+        content = `Playbook review failed \u2014 ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
       continue;
     }
 
