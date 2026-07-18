@@ -17,3 +17,9 @@ next-env.d.ts
 .DS_Store
 .vercel
 coverage
+
+# Fork scan
+scripts/fork-scan/.token
+scripts/fork-scan/last-scan.log
+scripts/fork-scan/register.json
+scripts/fork-scan/reports/

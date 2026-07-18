@@ -29,6 +29,11 @@ sleep 6
 echo "Opening Mike in browser..."
 open http://localhost:3000
 
+# Scan Mike OSS upstream + forks for new features (runs in background).
+# Report opens in browser only if NEW items were found since last scan.
+echo "Scanning Mike OSS forks for new features (background)..."
+(node "$MIKE_DIR/scripts/fork-scan/scan.mjs" --open-if-new > "$MIKE_DIR/scripts/fork-scan/last-scan.log" 2>&1 &)
+
 echo ""
 echo "Mike OSS is running!"
 echo "  Backend:  http://localhost:3001"
