@@ -12,6 +12,7 @@
  */
 
 import type { createServerSupabase } from "./supabase";
+import type { ProjectRole } from "./rbac";
 
 type Db = ReturnType<typeof createServerSupabase>;
 
@@ -19,6 +20,9 @@ export type ProjectAccess =
     | {
           ok: true;
           isOwner: boolean;
+          /** RBAC project role (P3). Owner ⇒ 'owner'; legacy shared_with
+           *  members map to 'editor' until backfilled into project_members. */
+          role: ProjectRole;
           project: {
               id: string;
               user_id: string;
@@ -45,15 +49,40 @@ export async function checkProjectAccess(
         shared_with: string[] | null;
     };
     if (proj.user_id === userId) {
-        return { ok: true, isOwner: true, project: proj };
+        return { ok: true, isOwner: true, role: "owner", project: proj };
     }
+
+    // RBAC membership (authoritative).
+    const { data: member } = await db
+        .from("project_members")
+        .select("role")
+        .eq("project_id", projectId)
+        .eq("user_id", userId)
+        .maybeSingle();
+    const memberRole = (member as { role?: string } | null)?.role;
+    if (
+        memberRole === "owner" ||
+        memberRole === "editor" ||
+        memberRole === "reviewer" ||
+        memberRole === "viewer"
+    ) {
+        return {
+            ok: true,
+            isOwner: memberRole === "owner",
+            role: memberRole,
+            project: proj,
+        };
+    }
+
+    // Legacy fallback: shared_with email list (pre-RBAC shares behaved as
+    // read/write ⇒ editor). Removed once all instances run migration 03.
     const sharedWith = Array.isArray(proj.shared_with) ? proj.shared_with : [];
     const email = (userEmail ?? "").toLowerCase();
     if (
         email &&
         sharedWith.some((e) => (e ?? "").toLowerCase() === email)
     ) {
-        return { ok: true, isOwner: false, project: proj };
+        return { ok: true, isOwner: false, role: "editor", project: proj };
     }
     return { ok: false };
 }
@@ -171,18 +200,26 @@ export async function listAccessibleProjectIds(
     userEmail: string | null | undefined,
     db: Db,
 ): Promise<string[]> {
-    const [{ data: own }, { data: shared }] = await Promise.all([
-        db.from("projects").select("id").eq("user_id", userId),
-        userEmail
-            ? db
-                  .from("projects")
-                  .select("id")
-                  .filter("shared_with", "cs", JSON.stringify([userEmail]))
-                  .neq("user_id", userId)
-            : Promise.resolve({ data: [] as { id: string }[] }),
-    ]);
+    const [{ data: own }, { data: shared }, { data: memberships }] =
+        await Promise.all([
+            db.from("projects").select("id").eq("user_id", userId),
+            userEmail
+                ? db
+                      .from("projects")
+                      .select("id")
+                      .filter("shared_with", "cs", JSON.stringify([userEmail]))
+                      .neq("user_id", userId)
+                : Promise.resolve({ data: [] as { id: string }[] }),
+            db
+                .from("project_members")
+                .select("project_id")
+                .eq("user_id", userId),
+        ]);
     const ids = new Set<string>();
     for (const p of (own ?? []) as { id: string }[]) ids.add(p.id);
     for (const p of (shared ?? []) as { id: string }[]) ids.add(p.id);
+    for (const m of (memberships ?? []) as { project_id: string }[]) {
+        ids.add(m.project_id);
+    }
     return [...ids];
 }

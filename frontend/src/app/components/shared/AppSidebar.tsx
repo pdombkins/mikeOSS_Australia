@@ -7,6 +7,11 @@ import {
     ChevronsUpDown,
     ChevronDown,
     ShieldCheck,
+    ScrollText,
+    Bell,
+    Bot,
+    BadgeCheck,
+    Radar,
 } from "lucide-react";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { useUserProfile } from "@/app/contexts/UserProfileContext";
@@ -26,6 +31,7 @@ import {
     ProjectSvgIcon,
 } from "@/app/components/shared/FolderSvgIcon";
 import { listProjects } from "@/app/lib/mikeApi";
+import { useNotifications } from "@/app/hooks/useNotifications";
 import type { Project } from "@/app/components/shared/types";
 import { cn } from "@/app/lib/utils";
 import {
@@ -39,6 +45,11 @@ const NAV_ITEMS = [
     { href: "/library", label: "Library", icon: LibrarySkeuoIcon },
     { href: "/tabular-reviews", label: "Tabular Review", icon: TabularReviewSkeuoIcon },
     { href: "/workflows", label: "Workflows", icon: WorkflowSkeuoIcon },
+    { href: "/agents", label: "Agents", icon: Bot },
+    { href: "/verify", label: "Verify", icon: BadgeCheck },
+    { href: "/regwatch", label: "Regulatory", icon: Radar },
+    { href: "/playbooks", label: "Playbooks", icon: ScrollText },
+    { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 
 interface AppSidebarProps {
@@ -73,6 +84,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
     const [recentProjects, setRecentProjects] = useState<Project[] | null>(
         null,
     );
+    const { unreadCount } = useNotifications(!!user);
 
     useEffect(() => {
         if (!user) return;
@@ -242,6 +254,15 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                         {label}
                                     </span>
                                 )}
+                                {href === "/notifications" &&
+                                    unreadCount > 0 &&
+                                    isOpen && (
+                                        <span className="ml-auto rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                                            {unreadCount > 99
+                                                ? "99+"
+                                                : unreadCount}
+                                        </span>
+                                    )}
                             </button>
                         </div>
                     );

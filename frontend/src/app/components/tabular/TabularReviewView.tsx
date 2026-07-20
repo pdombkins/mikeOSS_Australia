@@ -28,6 +28,7 @@ import {
     regenerateTabularCell,
     streamTabularGeneration,
     updateTabularReview,
+    updateTabularCell,
     uploadReviewDocument,
 } from "@/app/lib/mikeApi";
 import type {
@@ -1069,6 +1070,39 @@ export function TRView({ reviewId, projectId }: Props) {
                                     expandedCell.column_index,
                                 )
                             }
+                            onSaveEdit={async (summary) => {
+                                const { content } = await updateTabularCell(
+                                    reviewId,
+                                    expandedCell.document_id,
+                                    expandedCell.column_index,
+                                    summary,
+                                );
+                                setCells((prev) =>
+                                    prev.map((c) =>
+                                        c.document_id ===
+                                            expandedCell.document_id &&
+                                        c.column_index ===
+                                            expandedCell.column_index
+                                            ? {
+                                                  ...c,
+                                                  content:
+                                                      content as typeof c.content,
+                                                  status: "done",
+                                              }
+                                            : c,
+                                    ),
+                                );
+                                setExpandedCell((prev) =>
+                                    prev
+                                        ? {
+                                              ...prev,
+                                              content:
+                                                  content as typeof prev.content,
+                                              status: "done",
+                                          }
+                                        : prev,
+                                );
+                            }}
                             displayDocument={expandedCellCitation !== undefined}
                             citationQuote={expandedCellCitation?.quote}
                             citationPage={expandedCellCitation?.page}

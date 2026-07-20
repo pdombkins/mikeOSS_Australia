@@ -23,3 +23,8 @@ scripts/fork-scan/.token
 scripts/fork-scan/last-scan.log
 scripts/fork-scan/register.json
 scripts/fork-scan/reports/
+
+# Competitor scan
+scripts/competitor-scan/last-scan.log
+scripts/competitor-scan/register.json
+scripts/competitor-scan/reports/

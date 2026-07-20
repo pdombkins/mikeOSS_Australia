@@ -11,29 +11,39 @@
 // Gemini prices: https://ai.google.dev/gemini-api/docs/pricing (Standard tier)
 // ---------------------------------------------------------------------------
 
+import { getModelDef, kimiSelfHosted, providerForModel } from "./llm/models";
+
 type ModelPrice = {
     inputPerMToken: number;
     outputPerMToken: number;
 };
 
-const MODEL_PRICES: Record<string, ModelPrice> = {
-    // Claude
-    "claude-fable-5":    { inputPerMToken: 10.00, outputPerMToken: 50.00 },
-    "claude-opus-4-8":   { inputPerMToken:  5.00, outputPerMToken: 25.00 },
-    "claude-opus-4-7":   { inputPerMToken:  5.00, outputPerMToken: 25.00 },
-    "claude-sonnet-4-6": { inputPerMToken:  3.00, outputPerMToken: 15.00 },
-    "claude-haiku-4-5":  { inputPerMToken:  1.00, outputPerMToken:  5.00 },
-
+// Models not in the registry (embeddings, legacy aliases).
+const EXTRA_PRICES: Record<string, ModelPrice> = {
     // Gemini embeddings (knowledge base; input-only, tokens estimated)
-    "gemini-embedding-001":          { inputPerMToken:  0.15, outputPerMToken:  0.00 },
-
-    // Gemini (Standard paid tier)
-    "gemini-3.5-flash":              { inputPerMToken:  1.50, outputPerMToken:  9.00 },
-    "gemini-3.1-pro-preview":        { inputPerMToken:  2.00, outputPerMToken: 12.00 },
-    "gemini-3-flash-preview":        { inputPerMToken:  0.50, outputPerMToken:  3.00 },
-    "gemini-3.1-flash-lite-preview": { inputPerMToken:  0.25, outputPerMToken:  1.50 },
-    "gemini-3.1-flash-lite":         { inputPerMToken:  0.25, outputPerMToken:  1.50 },
+    "gemini-embedding-001":  { inputPerMToken: 0.15, outputPerMToken: 0.00 },
+    "gemini-3.1-flash-lite": { inputPerMToken: 0.25, outputPerMToken: 1.50 },
 };
+
+function priceFor(model: string): ModelPrice | null {
+    // Self-hosted Kimi endpoint: no per-token charge (optionally attribute
+    // GPU cost via KIMI_INPUT_PRICE / KIMI_OUTPUT_PRICE, USD per 1M tokens).
+    try {
+        if (providerForModel(model) === "moonshot" && kimiSelfHosted()) {
+            return {
+                inputPerMToken: Number(process.env.KIMI_INPUT_PRICE) || 0,
+                outputPerMToken: Number(process.env.KIMI_OUTPUT_PRICE) || 0,
+            };
+        }
+    } catch {
+        /* unknown model — fall through */
+    }
+    const def = getModelDef(model);
+    if (def) {
+        return { inputPerMToken: def.inputPerM, outputPerMToken: def.outputPerM };
+    }
+    return EXTRA_PRICES[model] ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // AUD exchange rate (cached daily)
@@ -84,7 +94,7 @@ export async function calculateCostAud(
     inputTokens: number,
     outputTokens: number,
 ): Promise<CostResult> {
-    const prices = MODEL_PRICES[model];
+    const prices = priceFor(model);
     let costUsd = 0;
     if (prices) {
         costUsd =

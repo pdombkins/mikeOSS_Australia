@@ -565,6 +565,10 @@ export interface ColumnConfig {
   prompt: string;
   format?: ColumnFormat;
   tags?: string[];
+  /** C015 — typed extraction: text | date | money | duration | boolean | risk */
+  type?: string;
+  /** C031 — fixed reference document evaluated against every row */
+  reference_document_id?: string;
 }
 
 export interface TabularReview {

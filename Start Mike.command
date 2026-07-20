@@ -34,6 +34,11 @@ open http://localhost:3000
 echo "Scanning Mike OSS forks for new features (background)..."
 (node "$MIKE_DIR/scripts/fork-scan/scan.mjs" --open-if-new > "$MIKE_DIR/scripts/fork-scan/last-scan.log" 2>&1 &)
 
+# Scan competitors (Harvey, Legora, CoCounsel) for new feature announcements,
+# in parallel with the fork scan. Report opens only if NEW items were found.
+echo "Scanning competitors for new features (background)..."
+(node "$MIKE_DIR/scripts/competitor-scan/scan.mjs" --open-if-new > "$MIKE_DIR/scripts/competitor-scan/last-scan.log" 2>&1 &)
+
 echo ""
 echo "Mike OSS is running!"
 echo "  Backend:  http://localhost:3001"

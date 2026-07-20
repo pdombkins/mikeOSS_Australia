@@ -14,7 +14,17 @@ import { userRouter } from "./routes/user";
 import { downloadsRouter } from "./routes/downloads";
 import { caseLawRouter } from "./routes/caseLaw";
 import { jadeRouter } from "./routes/jade";
+import { playbooksRouter } from "./routes/playbooks";
 import { adminRouter } from "./routes/admin";
+import { notificationsRouter } from "./routes/notifications";
+import { agentsRouter } from "./routes/agents";
+import { clausesRouter } from "./routes/clauses";
+import { verifyRouter } from "./routes/verify";
+import { regwatchRouter } from "./routes/regwatch";
+import { mcpServerRouter } from "./routes/mcpServer";
+import { patsRouter } from "./routes/pats";
+import { runRegwatchScan } from "./lib/regwatch/scan";
+import { recoverOrphanedRuns } from "./lib/agents/executor";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -161,10 +171,35 @@ app.use("/users", userRouter);
 app.use("/download", downloadsRouter);
 app.use("/case-law", caseLawRouter);
 app.use("/jade", jadeRouter);
+app.use("/playbooks", playbooksRouter);
 app.use("/admin", adminRouter);
+app.use("/notifications", notificationsRouter);
+app.use("/agents", agentsRouter);
+app.use("/clauses", clausesRouter);
+app.use("/verify", verifyRouter);
+app.use("/regwatch", regwatchRouter);
+app.use("/mcp-server", mcpServerRouter);
+app.use("/pats", patsRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => {
   console.log(`Mike backend running on port ${PORT}`);
 });
+
+// P1 — resume agent runs orphaned by a restart (completed steps preserved).
+setTimeout(
+  () =>
+    void recoverOrphanedRuns()
+      .then((n) => {
+        if (n > 0) console.log(`[agents] resumed ${n} orphaned run(s)`);
+      })
+      .catch(() => {}),
+  10_000,
+);
+
+// C018 — regulatory feed scan: shortly after boot, then 6-hourly.
+if (process.env.REGWATCH_DISABLED !== "1") {
+  setTimeout(() => void runRegwatchScan().catch(() => {}), 60_000);
+  setInterval(() => void runRegwatchScan().catch(() => {}), 6 * 60 * 60 * 1000);
+}

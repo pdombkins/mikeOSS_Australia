@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Plus, X } from "lucide-react";
 import type { ColumnConfig, ColumnFormat } from "../shared/types";
-import { generateTabularColumnPrompt } from "@/app/lib/mikeApi";
+import { generateTabularColumnPrompt, getLibrary } from "@/app/lib/mikeApi";
 import { FORMAT_OPTIONS } from "./columnFormat";
 import { TAG_COLORS } from "./pillUtils";
 import { getPresetConfig, PROMPT_PRESETS } from "./columnPresets";
@@ -19,6 +19,10 @@ interface ColumnDraft {
     format: ColumnFormat;
     tags: string[];
     tagInput: string;
+    /** C015 typed extraction */
+    valueType: string;
+    /** C031 fixed reference document */
+    referenceDocumentId: string;
 }
 
 const EMPTY_DRAFT: ColumnDraft = {
@@ -27,7 +31,18 @@ const EMPTY_DRAFT: ColumnDraft = {
     format: "text",
     tags: [],
     tagInput: "",
+    valueType: "",
+    referenceDocumentId: "",
 };
+
+const VALUE_TYPE_OPTIONS = [
+    { value: "", label: "None (free text)" },
+    { value: "date", label: "Date (ISO value)" },
+    { value: "money", label: "Money (amount + currency)" },
+    { value: "duration", label: "Duration (days)" },
+    { value: "boolean", label: "Boolean" },
+    { value: "risk", label: "Risk (severity low/medium/high)" },
+];
 
 interface Props {
     open: boolean;
@@ -49,6 +64,25 @@ export function AddColumnModal({ open, existingCount, onClose, onAdd, editingCol
         null,
     );
     const presetsRef = useRef<HTMLDivElement>(null);
+    // C031 — Library documents selectable as fixed reference context.
+    const [refDocs, setRefDocs] = useState<
+        { id: string; filename: string }[]
+    >([]);
+    useEffect(() => {
+        if (!open || refDocs.length > 0) return;
+        void Promise.all([getLibrary("files"), getLibrary("templates")])
+            .then(([files, templates]) => {
+                const seen = new Set<string>();
+                setRefDocs(
+                    [...templates.documents, ...files.documents]
+                        .filter((d) =>
+                            seen.has(d.id) ? false : (seen.add(d.id), true),
+                        )
+                        .map((d) => ({ id: d.id, filename: d.filename })),
+                );
+            })
+            .catch(() => {});
+    }, [open, refDocs.length]);
 
     useEffect(() => {
         if (!open) return;
@@ -59,6 +93,8 @@ export function AddColumnModal({ open, existingCount, onClose, onAdd, editingCol
                 format: editingColumn.format ?? "text",
                 tags: editingColumn.tags ?? [],
                 tagInput: "",
+                valueType: editingColumn.type ?? "",
+                referenceDocumentId: editingColumn.reference_document_id ?? "",
             }]);
         } else {
             setColumns([{ ...EMPTY_DRAFT }]);
@@ -193,6 +229,8 @@ export function AddColumnModal({ open, existingCount, onClose, onAdd, editingCol
                 prompt: col.prompt.trim(),
                 format: col.format,
                 tags: col.format === "tag" ? col.tags : undefined,
+                type: col.valueType || undefined,
+                reference_document_id: col.referenceDocumentId || undefined,
             });
         } else {
             onAdd(
@@ -202,6 +240,8 @@ export function AddColumnModal({ open, existingCount, onClose, onAdd, editingCol
                     prompt: col.prompt.trim(),
                     format: col.format,
                     tags: col.format === "tag" ? col.tags : undefined,
+                    type: col.valueType || undefined,
+                    reference_document_id: col.referenceDocumentId || undefined,
                 })),
             );
         }
@@ -415,6 +455,54 @@ export function AddColumnModal({ open, existingCount, onClose, onAdd, editingCol
                                             })
                                         }
                                     />
+                                </div>
+
+                                {/* C015 — typed extraction */}
+                                <div className="mt-3">
+                                    <ModalFieldLabel
+                                        htmlFor={`column-${index}-valuetype`}
+                                    >
+                                        Value type
+                                    </ModalFieldLabel>
+                                    <ModalSelect
+                                        id={`column-${index}-valuetype`}
+                                        value={column.valueType}
+                                        options={VALUE_TYPE_OPTIONS}
+                                        onChange={(value) =>
+                                            updateColumn(index, {
+                                                valueType: value,
+                                            })
+                                        }
+                                    />
+                                </div>
+
+                                {/* C031 — fixed reference document */}
+                                <div className="mt-3">
+                                    <ModalFieldLabel
+                                        htmlFor={`column-${index}-refdoc`}
+                                    >
+                                        Reference document
+                                    </ModalFieldLabel>
+                                    <ModalSelect
+                                        id={`column-${index}-refdoc`}
+                                        value={column.referenceDocumentId}
+                                        options={[
+                                            { value: "", label: "None" },
+                                            ...refDocs.map((d) => ({
+                                                value: d.id,
+                                                label: d.filename,
+                                            })),
+                                        ]}
+                                        onChange={(value) =>
+                                            updateColumn(index, {
+                                                referenceDocumentId: value,
+                                            })
+                                        }
+                                    />
+                                    <p className="mt-1 text-[11px] text-gray-400">
+                                        Every row is evaluated against this
+                                        document (e.g. a template or standard).
+                                    </p>
                                 </div>
 
                                 {/* Tag input */}

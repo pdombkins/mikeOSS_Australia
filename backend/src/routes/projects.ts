@@ -14,6 +14,8 @@ import {
 } from "../lib/storage";
 import { docxToPdf, convertedPdfKey } from "../lib/convert";
 import { checkProjectAccess } from "../lib/access";
+import { can, isProjectRole } from "../lib/rbac";
+import { recordAudit } from "../lib/audit";
 import { singleFileUpload } from "../lib/upload";
 import { deleteUserProjects } from "../lib/userDataCleanup";
 import {
@@ -1025,3 +1027,133 @@ async function countPdfPages(buf: ArrayBuffer): Promise<number | null> {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// P3 RBAC (C019) — project member management with roles.
+// Deny-by-default membership is the ethical wall: no row = no access.
+// ---------------------------------------------------------------------------
+
+// GET /projects/:projectId/members — list members with roles.
+projectsRouter.get("/:projectId/members", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string | undefined;
+  const { projectId } = req.params;
+  const db = createServerSupabase();
+  const access = await checkProjectAccess(projectId, userId, userEmail, db);
+  if (!access.ok)
+    return void res.status(404).json({ detail: "Project not found" });
+
+  const { data: members } = await db
+    .from("project_members")
+    .select("id, user_id, role, created_at")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+  const { userById } = await loadProfileUsersByEmail(db);
+  res.json({
+    role: access.role,
+    members: (members ?? []).map((m) => {
+      const u = userById.get(m.user_id as string);
+      return {
+        id: m.id,
+        user_id: m.user_id,
+        role: m.role,
+        email: u?.email ?? null,
+        display_name: u?.display_name ?? null,
+      };
+    }),
+  });
+});
+
+// PUT /projects/:projectId/members { email, role } — add or change a member.
+projectsRouter.put("/:projectId/members", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string | undefined;
+  const { projectId } = req.params;
+  const db = createServerSupabase();
+  const access = await checkProjectAccess(projectId, userId, userEmail, db);
+  if (!access.ok)
+    return void res.status(404).json({ detail: "Project not found" });
+  if (!can(access.role, "manage"))
+    return void res
+      .status(403)
+      .json({ detail: "Only the project owner can manage members" });
+
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "";
+  const role = req.body?.role;
+  if (!email || !isProjectRole(role) || role === "owner")
+    return void res
+      .status(400)
+      .json({ detail: "email and role (editor|reviewer|viewer) required" });
+
+  const { userByEmail } = await loadProfileUsersByEmail(db);
+  const target = userByEmail.get(email);
+  if (!target?.id)
+    return void res
+      .status(404)
+      .json({ detail: "No Mike user with that email" });
+  if (target.id === access.project.user_id)
+    return void res
+      .status(400)
+      .json({ detail: "The owner's role cannot be changed" });
+
+  const { error } = await db.from("project_members").upsert(
+    {
+      project_id: projectId,
+      user_id: target.id,
+      role,
+      added_by: userId,
+    },
+    { onConflict: "project_id,user_id" },
+  );
+  if (error) return void res.status(500).json({ detail: error.message });
+  recordAudit({
+    actorId: userId,
+    eventType: "member_change",
+    projectId,
+    resourceType: "project",
+    resourceId: projectId,
+    detail: { action: "upsert", email, role },
+  });
+  res.json({ ok: true });
+});
+
+// DELETE /projects/:projectId/members/:memberUserId — remove a member (wall them off).
+projectsRouter.delete(
+  "/:projectId/members/:memberUserId",
+  requireAuth,
+  async (req, res) => {
+    const userId = res.locals.userId as string;
+    const userEmail = res.locals.userEmail as string | undefined;
+    const { projectId, memberUserId } = req.params;
+    const db = createServerSupabase();
+    const access = await checkProjectAccess(projectId, userId, userEmail, db);
+    if (!access.ok)
+      return void res.status(404).json({ detail: "Project not found" });
+    if (!can(access.role, "manage"))
+      return void res
+        .status(403)
+        .json({ detail: "Only the project owner can manage members" });
+    if (memberUserId === access.project.user_id)
+      return void res
+        .status(400)
+        .json({ detail: "The owner cannot be removed" });
+
+    await db
+      .from("project_members")
+      .delete()
+      .eq("project_id", projectId)
+      .eq("user_id", memberUserId);
+    recordAudit({
+      actorId: userId,
+      eventType: "member_change",
+      projectId,
+      resourceType: "project",
+      resourceId: projectId,
+      detail: { action: "remove", member: memberUserId },
+    });
+    res.json({ ok: true });
+  },
+);

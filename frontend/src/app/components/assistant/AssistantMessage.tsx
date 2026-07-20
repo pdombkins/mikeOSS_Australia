@@ -1,7 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Loader2, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { apiVerifyText } from "@/app/lib/mikeApi";
 import type { AssistantEvent, Citation, EditAnnotation } from "../shared/types";
 import { EditCard } from "./EditCard";
 import { PreResponseWrapper } from "./PreResponseWrapper";
@@ -216,6 +218,22 @@ export function AssistantMessage({
 }: Props) {
     const contentDivRef = useRef<HTMLDivElement | null>(null);
     const [isCopied, setIsCopied] = useState(false);
+    // C024 — per-message Deep-verify.
+    const [isVerifying, setIsVerifying] = useState(false);
+    const verifyRouter = useRouter();
+    const handleVerify = async () => {
+        const text = contentDivRef.current?.innerText ?? "";
+        if (!text.trim() || isVerifying) return;
+        setIsVerifying(true);
+        try {
+            const { report_id } = await apiVerifyText(text);
+            verifyRouter.push(`/verify?report=${report_id}`);
+        } catch {
+            /* surfaced on the verify page instead */
+        } finally {
+            setIsVerifying(false);
+        }
+    };
     // Per-document override of the download URL, set as Accept/Reject resolves
     // each tracked change and produces a new version.
     const [resolvedOverrides, setResolvedOverrides] = useState<
@@ -1144,6 +1162,19 @@ export function AssistantMessage({
                                 <Check className="h-3.5 w-3.5 text-green-600" />
                             ) : (
                                 <Copy className="h-3.5 w-3.5" />
+                            )}
+                        </button>
+                    )}
+                    {!isStreaming && (
+                        <button
+                            className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                            onClick={() => void handleVerify()}
+                            title="Verify citations (Deep-verify)"
+                        >
+                            {isVerifying ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <ShieldCheck className="h-3.5 w-3.5" />
                             )}
                         </button>
                     )}

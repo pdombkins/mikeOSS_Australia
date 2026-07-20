@@ -24,6 +24,10 @@ import {
   formatAGLC4Citation,
 } from "../../jade";
 import { verifyCitation } from "../../verification";
+import { recordAudit, argsDigest } from "../../audit";
+import { saveClause, searchClauses, formatClausesForModel } from "../../clauses";
+import { runTabularAsk } from "../../tabularAsk";
+import { runAssertionVerification } from "../../verification/assertionCheck";
 import {
   searchKnowledge,
   formatKnowledgeForModel,
@@ -611,6 +615,15 @@ export async function runToolCalls(
       /* ignore */
     }
 
+    // P3 audit trail (C019): every tool call, args digested not dumped.
+    recordAudit({
+      actorId: userId,
+      eventType: "tool_call",
+      projectId: projectId ?? null,
+      toolName: tc.function.name,
+      detail: { args: argsDigest(args) },
+    });
+
     if (tc.function.name.startsWith("mcp_")) {
       write(
         `data: ${JSON.stringify({
@@ -720,6 +733,239 @@ export async function runToolCalls(
         }
       } catch (err) {
         content = `Playbook review failed \u2014 ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    // C026 — My Clauses tools.
+    if (tc.function.name === "search_clauses") {
+      const query = typeof args.query === "string" ? args.query : "";
+      let content: string;
+      try {
+        const clauses = await searchClauses(db, userId, query, {
+          k: typeof args.k === "number" ? args.k : undefined,
+          agreementType:
+            typeof args.agreement_type === "string"
+              ? args.agreement_type
+              : null,
+          apiKeys,
+        });
+        content = formatClausesForModel(query, clauses);
+      } catch (err) {
+        content = `MY CLAUSES: search failed — ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    if (tc.function.name === "save_clause") {
+      let content: string;
+      try {
+        const clause = await saveClause(
+          db,
+          userId,
+          {
+            title: typeof args.title === "string" ? args.title : "Clause",
+            body: typeof args.body === "string" ? args.body : "",
+            agreement_type:
+              typeof args.agreement_type === "string"
+                ? args.agreement_type
+                : null,
+            guidance:
+              typeof args.guidance === "string" ? args.guidance : null,
+            tags: Array.isArray(args.tags)
+              ? (args.tags as unknown[]).filter(
+                  (t): t is string => typeof t === "string",
+                )
+              : [],
+          },
+          apiKeys,
+        );
+        content = `Saved to My Clauses: "${clause.title}" (id ${clause.id}).`;
+      } catch (err) {
+        content = `Could not save clause — ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    // C002 — conversational playbook builder (write ops, audit-logged above).
+    if (tc.function.name === "create_playbook") {
+      let content: string;
+      try {
+        const name = typeof args.name === "string" ? args.name.trim() : "";
+        if (!name) throw new Error("name is required");
+        const { error } = await db.from("playbooks").insert({
+          owner_id: userId,
+          name,
+          agreement_type:
+            typeof args.agreement_type === "string"
+              ? args.agreement_type
+              : null,
+          description:
+            typeof args.description === "string" ? args.description : null,
+        });
+        if (error) throw new Error(error.message);
+        content = `Created playbook "${name}". Add rules with upsert_playbook_rule.`;
+      } catch (err) {
+        content = `Could not create playbook — ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    if (tc.function.name === "upsert_playbook_rule") {
+      let content: string;
+      try {
+        const pbName =
+          typeof args.playbook_name === "string" ? args.playbook_name : "";
+        const topic = typeof args.topic === "string" ? args.topic.trim() : "";
+        if (!pbName || !topic)
+          throw new Error("playbook_name and topic are required");
+        const { data: pb } = await db
+          .from("playbooks")
+          .select("id")
+          .eq("owner_id", userId)
+          .eq("name", pbName)
+          .maybeSingle();
+        if (!pb) throw new Error(`No playbook named "${pbName}"`);
+        const severity =
+          args.severity === "low" ||
+          args.severity === "medium" ||
+          args.severity === "high"
+            ? args.severity
+            : "medium";
+        const fields = {
+          preferred:
+            typeof args.preferred === "string" ? args.preferred : null,
+          acceptable_fallback:
+            typeof args.acceptable_fallback === "string"
+              ? args.acceptable_fallback
+              : null,
+          dealbreaker:
+            typeof args.dealbreaker === "string" ? args.dealbreaker : null,
+          severity,
+          notes: typeof args.notes === "string" ? args.notes : null,
+        };
+        const { data: existing } = await db
+          .from("playbook_rules")
+          .select("id")
+          .eq("playbook_id", pb.id)
+          .ilike("topic", topic)
+          .maybeSingle();
+        if (existing) {
+          const { error } = await db
+            .from("playbook_rules")
+            .update(fields)
+            .eq("id", existing.id);
+          if (error) throw new Error(error.message);
+          content = `Updated rule "${topic}" in "${pbName}".`;
+        } else {
+          const { error } = await db
+            .from("playbook_rules")
+            .insert({ playbook_id: pb.id, topic, ...fields });
+          if (error) throw new Error(error.message);
+          content = `Added rule "${topic}" to "${pbName}".`;
+        }
+        await db
+          .from("playbooks")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", pb.id);
+      } catch (err) {
+        content = `Could not save rule — ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    if (tc.function.name === "delete_playbook_rule") {
+      let content: string;
+      try {
+        const pbName =
+          typeof args.playbook_name === "string" ? args.playbook_name : "";
+        const topic = typeof args.topic === "string" ? args.topic.trim() : "";
+        const { data: pb } = await db
+          .from("playbooks")
+          .select("id")
+          .eq("owner_id", userId)
+          .eq("name", pbName)
+          .maybeSingle();
+        if (!pb) throw new Error(`No playbook named "${pbName}"`);
+        const { error } = await db
+          .from("playbook_rules")
+          .delete()
+          .eq("playbook_id", pb.id)
+          .ilike("topic", topic);
+        if (error) throw new Error(error.message);
+        content = `Deleted rule "${topic}" from "${pbName}" (if it existed).`;
+      } catch (err) {
+        content = `Could not delete rule — ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    // C025 — one question across many documents.
+    if (tc.function.name === "tabular_ask") {
+      let content: string;
+      try {
+        const question =
+          typeof args.question === "string" ? args.question : "";
+        const documentIds = Array.isArray(args.document_ids)
+          ? (args.document_ids as unknown[]).filter(
+              (v): v is string => typeof v === "string",
+            )
+          : [];
+        const outcome = await runTabularAsk({
+          db,
+          userId,
+          question,
+          documentIds,
+          title: typeof args.title === "string" ? args.title : null,
+          apiKeys,
+        });
+        content = JSON.stringify(outcome);
+      } catch (err) {
+        content = `Tabular analysis failed — ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    // C024 — assertion-level verification.
+    if (tc.function.name === "verify_assertions") {
+      let content: string;
+      try {
+        const text = typeof args.text === "string" ? args.text : "";
+        const outcome = await runAssertionVerification({
+          db,
+          userId,
+          text,
+          sourceKind: "chat_message",
+          projectId: projectId ?? null,
+          apiKeys,
+        });
+        const pending = outcome.assertions.filter((a) => !a.verdict).length;
+        content = JSON.stringify({
+          report_id: outcome.report_id,
+          jade_content_checking: outcome.jade_content_checking,
+          assertions: outcome.assertions.map((a) => ({
+            position: a.position,
+            assertion: a.assertion,
+            citation: a.citation,
+            citation_valid: a.citation_valid,
+            verdict: a.verdict ?? "pending_human_validation",
+            verifier: a.verifier,
+            supporting_passage: a.supporting_passage,
+          })),
+          note:
+            pending > 0
+              ? `${pending} assertion(s) need the user's own validation — tell the user to open the report at /verify?report=${outcome.report_id}, use the Jade/AustLII search links there, and record verdicts themselves.`
+              : `All assertions machine-checked. Full report at /verify?report=${outcome.report_id}.`,
+        });
+      } catch (err) {
+        content = `Verification failed — ${(err as Error).message}`;
       }
       toolResults.push({ role: "tool", tool_call_id: tc.id, content });
       continue;

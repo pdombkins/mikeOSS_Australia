@@ -61,3 +61,28 @@ export const VERIFICATION_TOOLS = [
     },
   },
 ];
+
+// ---------------------------------------------------------------------------
+// C024 — assertion-level verification tool (Deep-verify).
+// ---------------------------------------------------------------------------
+export const ASSERTION_VERIFY_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "verify_assertions",
+      description:
+        "Deep-verify a passage of legal writing: extracts every assertion+citation pair, checks each citation exists (Jade), and — where judgment text is accessible — checks whether the authority actually supports the assertion. Returns a per-assertion report. When judgment content is not accessible, assertions are flagged for the user to self-validate via provided Jade/AustLII search links. Use when asked to verify citations, check authorities, or before finalising research output.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description:
+              "The text to verify (e.g. the draft answer or memo section containing citations).",
+          },
+        },
+        required: ["text"],
+      },
+    },
+  },
+];

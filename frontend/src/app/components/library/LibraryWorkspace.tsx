@@ -55,9 +55,10 @@ type LibraryWorkspaceContextValue = {
     ) => void;
 };
 
-const LIBRARY_TABS: { id: LibraryKind; label: string }[] = [
+const LIBRARY_TABS: { id: LibraryKind | "clauses"; label: string }[] = [
     { id: "files", label: "Files" },
     { id: "templates", label: "Templates" },
+    { id: "clauses", label: "Clauses" },
 ];
 
 const EMPTY_COLLECTION: LibraryViewCollection = {
@@ -316,9 +317,13 @@ export function LibraryCollectionPage({ kind }: { kind: LibraryKind }) {
                 <TableToolbar
                     items={LIBRARY_TABS}
                     active={kind}
-                    onChange={(next) =>
+                    onChange={(next: LibraryKind | "clauses") =>
                         router.push(
-                            next === "files" ? "/library" : "/library/templates",
+                            next === "files"
+                                ? "/library"
+                                : next === "clauses"
+                                  ? "/clauses"
+                                  : "/library/templates",
                         )
                     }
                     actions={

@@ -778,3 +778,116 @@ workflowsRouter.use(
     res.status(500).json({ detail: "Failed to process workflow request" });
   },
 );
+
+// ---------------------------------------------------------------------------
+// C014 — Workflows orchestration layer.
+// POST /workflows/:workflowId/compile { instructions? } — NL → plan template
+// POST /workflows/:workflowId/run { request?, document_ids? } — run as agent
+// ---------------------------------------------------------------------------
+workflowsRouter.post("/:workflowId/compile", requireAuth, asyncRoute(
+  async (req, res) => {
+    const userId = res.locals.userId as string;
+    const db = createServerSupabase();
+    const { data: workflow } = await db
+      .from("workflows")
+      .select("id, title, skill_md")
+      .eq("id", req.params.workflowId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!workflow)
+      return void res.status(404).json({ detail: "Workflow not found" });
+
+    const instructions =
+      typeof req.body?.instructions === "string" && req.body.instructions.trim()
+        ? req.body.instructions.trim()
+        : `Workflow "${workflow.title}":\n${workflow.skill_md ?? ""}`;
+    const { planRun } = await import("../lib/agents/planner");
+    const { getUserApiKeys } = await import("../lib/userApiKeys");
+    const { resolveModel, DEFAULT_MAIN_MODEL } = await import("../lib/llm");
+    const apiKeys = await getUserApiKeys(userId, db);
+    const plan = await planRun({
+      request: instructions,
+      model: resolveModel(null, DEFAULT_MAIN_MODEL),
+      apiKeys,
+    });
+    const { error } = await db
+      .from("workflows")
+      .update({ plan_template: plan })
+      .eq("id", workflow.id);
+    if (error) return void res.status(500).json({ detail: error.message });
+    res.json({ plan });
+  },
+));
+
+workflowsRouter.post("/:workflowId/run", requireAuth, asyncRoute(
+  async (req, res) => {
+    const userId = res.locals.userId as string;
+    const userEmail = res.locals.userEmail as string | undefined;
+    const db = createServerSupabase();
+    const { data: workflow } = await db
+      .from("workflows")
+      .select("id, title, skill_md, plan_template")
+      .eq("id", req.params.workflowId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!workflow)
+      return void res.status(404).json({ detail: "Workflow not found" });
+    if (!workflow.plan_template)
+      return void res.status(400).json({
+        detail:
+          "This workflow has no plan template. Compile it first (or apply it in Assistant as a skill workflow).",
+      });
+
+    const { sanitizePlan } = await import("../lib/agents/planner");
+    const { ROLE_TOOLSETS } = await import("../lib/agents/types");
+    const { filterAccessibleDocumentIds } = await import("../lib/access");
+    const { executeRunInBackground } = await import("../lib/agents/executor");
+
+    const plan = sanitizePlan(workflow.plan_template, workflow.title as string);
+    const request =
+      typeof req.body?.request === "string" && req.body.request.trim()
+        ? req.body.request.trim()
+        : `Run the workflow "${workflow.title}".`;
+    const documentIds = Array.isArray(req.body?.document_ids)
+      ? await filterAccessibleDocumentIds(
+          (req.body.document_ids as unknown[]).filter(
+            (v): v is string => typeof v === "string",
+          ),
+          userId,
+          userEmail,
+          db,
+        )
+      : [];
+
+    const { data: created, error } = await db
+      .from("agent_runs")
+      .insert({
+        owner_id: userId,
+        kind: "workflow",
+        status: "awaiting_approval",
+        title: `${workflow.title}`,
+        request,
+        model: null,
+        plan,
+        document_ids: documentIds,
+        workflow_id: workflow.id,
+      })
+      .select("id")
+      .single();
+    if (error || !created)
+      return void res
+        .status(500)
+        .json({ detail: error?.message ?? "insert failed" });
+    const rows = plan.steps.map((s) => ({
+      run_id: created.id,
+      position: s.position,
+      depends_on: s.depends_on,
+      role: s.role,
+      instruction: s.instruction,
+      tool_allowlist: ROLE_TOOLSETS[s.role],
+    }));
+    await db.from("agent_steps").insert(rows);
+    void executeRunInBackground; // execution starts on approval via /agents/:id/approve
+    res.status(201).json({ run_id: created.id, plan });
+  },
+));

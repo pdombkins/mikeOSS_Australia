@@ -327,8 +327,8 @@ export async function adminGetSettings(): Promise<AdminSettings> {
 }
 
 export async function adminUpdateSettings(
-    settings: AdminSettings,
-): Promise<AdminSettings> {
+    settings: Partial<AdminSettings> & { orgContext?: string },
+): Promise<AdminSettings & { orgContext?: string }> {
     return apiRequest<AdminSettings>("/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -360,6 +360,8 @@ export async function updateUserProfile(payload: {
     titleModel?: string;
     tabularModel?: string;
     legalResearchUs?: boolean;
+    personalContext?: string | null;
+    emailNotifications?: boolean;
 }): Promise<UserProfile> {
     return apiRequest<UserProfile>("/user/profile", {
         method: "PATCH",
@@ -383,7 +385,8 @@ export type ApiKeyProvider =
     | "gemini"
     | "openai"
     | "openrouter"
-    | "courtlistener";
+    | "courtlistener"
+    | "moonshot";
 export type ApiKeySource = "user" | "env" | null;
 export type ApiKeyState = Record<
     ApiKeyProvider,
@@ -1514,4 +1517,548 @@ export async function deleteWorkflowShare(
     await apiRequest(`/workflows/${workflowId}/shares/${shareId}`, {
         method: "DELETE",
     });
+}
+
+// ── Playbooks ─────────────────────────────────────────────────────────────────
+
+export type PlaybookSeverity = "low" | "medium" | "high";
+
+export interface PlaybookRule {
+    id?: string;
+    topic: string;
+    preferred: string | null;
+    acceptable_fallback: string | null;
+    dealbreaker: string | null;
+    severity: PlaybookSeverity;
+    notes: string | null;
+    position?: number;
+}
+
+export interface PlaybookSummary {
+    id: string;
+    name: string;
+    agreement_type: string | null;
+    description: string | null;
+    created_at: string;
+    updated_at: string;
+    rule_count: number;
+}
+
+export interface Playbook {
+    id: string;
+    name: string;
+    agreement_type: string | null;
+    description: string | null;
+    created_at: string;
+    updated_at: string;
+    rules: PlaybookRule[];
+}
+
+export interface PlaybookInput {
+    name: string;
+    agreement_type?: string | null;
+    description?: string | null;
+    rules?: PlaybookRule[];
+}
+
+export async function listPlaybooks(): Promise<PlaybookSummary[]> {
+    const { playbooks } = await apiRequest<{ playbooks: PlaybookSummary[] }>(
+        "/playbooks",
+    );
+    return playbooks;
+}
+
+export async function getPlaybook(id: string): Promise<Playbook> {
+    const { playbook } = await apiRequest<{ playbook: Playbook }>(
+        `/playbooks/${id}`,
+    );
+    return playbook;
+}
+
+export async function createPlaybook(input: PlaybookInput): Promise<Playbook> {
+    const { playbook } = await apiRequest<{ playbook: Playbook }>("/playbooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+    return playbook;
+}
+
+export async function updatePlaybook(
+    id: string,
+    input: PlaybookInput,
+): Promise<Playbook> {
+    const { playbook } = await apiRequest<{ playbook: Playbook }>(
+        `/playbooks/${id}`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+        },
+    );
+    return playbook;
+}
+
+export async function deletePlaybook(id: string): Promise<void> {
+    await apiRequest(`/playbooks/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (P2)
+// ---------------------------------------------------------------------------
+
+export type AppNotification = {
+    id: string;
+    kind: "agent_run" | "tabular_review" | "regwatch" | "system";
+    title: string;
+    body: string | null;
+    link: string | null;
+    read_at: string | null;
+    created_at: string;
+};
+
+export async function getNotifications(unreadOnly = false): Promise<{
+    notifications: AppNotification[];
+    unreadCount: number;
+}> {
+    return apiRequest(`/notifications${unreadOnly ? "?unread=1" : ""}`);
+}
+
+export async function markNotificationsRead(ids?: string[]): Promise<void> {
+    await apiRequest(`/notifications/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ids ? { ids } : {}),
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Agent runs (P1 — C013/C030)
+// ---------------------------------------------------------------------------
+
+export type AgentPlanStep = {
+    position: number;
+    depends_on: number[];
+    role: "intake" | "research" | "drafting" | "review" | "verify";
+    instruction: string;
+    tool_allowlist?: string[];
+};
+
+export type AgentPlan = { title: string; steps: AgentPlanStep[] };
+
+export type AgentRunSummary = {
+    id: string;
+    kind: string;
+    status: string;
+    title: string | null;
+    request: string;
+    model: string | null;
+    project_id: string | null;
+    created_at: string;
+    started_at: string | null;
+    finished_at: string | null;
+};
+
+export type AgentStepDetail = {
+    position: number;
+    depends_on: number[];
+    role: string;
+    instruction: string;
+    status: string;
+    output_text: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+};
+
+export async function createAgentRun(input: {
+    request: string;
+    project_id?: string | null;
+    document_ids?: string[];
+    model?: string;
+    kind?: "assistant" | "draft_from_precedent";
+}): Promise<{ run_id: string; plan: AgentPlan; needs_approval: boolean }> {
+    return apiRequest(`/agents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+export async function listAgentRuns(): Promise<{ runs: AgentRunSummary[] }> {
+    return apiRequest(`/agents`);
+}
+
+export async function getAgentRun(id: string): Promise<{
+    run: AgentRunSummary & { plan: AgentPlan | null; error: string | null; result: unknown };
+    steps: AgentStepDetail[];
+}> {
+    return apiRequest(`/agents/${id}`);
+}
+
+export async function approveAgentRun(
+    id: string,
+    plan?: AgentPlan,
+): Promise<void> {
+    await apiRequest(`/agents/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(plan ? { plan } : {}),
+    });
+}
+
+export async function cancelAgentRun(id: string): Promise<void> {
+    await apiRequest(`/agents/${id}/cancel`, { method: "POST" });
+}
+
+
+// ---------------------------------------------------------------------------
+// Tabular v2 (C025/C032)
+// ---------------------------------------------------------------------------
+
+export async function updateTabularCell(
+    reviewId: string,
+    documentId: string,
+    columnIndex: number,
+    summary: string,
+): Promise<{ ok: boolean; content: Record<string, unknown> }> {
+    return apiRequest(
+        `/tabular-review/${reviewId}/cells/${documentId}/${columnIndex}`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ summary }),
+        },
+    );
+}
+
+export async function tabularAsk(input: {
+    question: string;
+    document_ids?: string[];
+    project_id?: string | null;
+    title?: string;
+}): Promise<{ review_id: string; document_count: number }> {
+    return apiRequest(`/tabular-review/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+// ---------------------------------------------------------------------------
+// My Clauses (C026)
+// ---------------------------------------------------------------------------
+
+export type Clause = {
+    id: string;
+    title: string;
+    agreement_type: string | null;
+    body: string;
+    guidance: string | null;
+    tags: string[];
+    source_document_id: string | null;
+    project_id: string | null;
+    created_at: string;
+};
+
+export async function listClauses(query?: string): Promise<{ clauses: Clause[] }> {
+    return apiRequest(`/clauses${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+}
+
+export async function createClause(input: {
+    title: string;
+    body: string;
+    agreement_type?: string | null;
+    guidance?: string | null;
+    tags?: string[];
+}): Promise<{ clause: Clause }> {
+    return apiRequest(`/clauses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+export async function deleteClause(id: string): Promise<void> {
+    await apiRequest(`/clauses/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Deep-verify (C024)
+// ---------------------------------------------------------------------------
+
+export type VerifyAssertion = {
+    id: string;
+    position: number;
+    assertion: string;
+    citation: string;
+    citation_valid: boolean | null;
+    verdict: string | null;
+    verifier: "ai" | "human" | "none";
+    supporting_passage: string | null;
+    note: string | null;
+    jade_url: string | null;
+    austlii_url: string | null;
+};
+
+export type VerifyReportSummary = {
+    id: string;
+    source_kind: string;
+    source_ref: string | null;
+    status: string;
+    created_at: string;
+    source_excerpt: string | null;
+};
+
+export async function apiVerifyText(text: string): Promise<{
+    report_id: string;
+    jade_content_checking: boolean;
+}> {
+    return apiRequest(`/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+    });
+}
+
+export async function listVerifyReports(): Promise<{
+    reports: VerifyReportSummary[];
+}> {
+    return apiRequest(`/verify`);
+}
+
+export async function getVerifyReport(id: string): Promise<{
+    report: VerifyReportSummary;
+    assertions: VerifyAssertion[];
+}> {
+    return apiRequest(`/verify/${id}`);
+}
+
+export async function setAssertionVerdict(
+    reportId: string,
+    assertionId: string,
+    verdict: string,
+    note?: string,
+): Promise<void> {
+    await apiRequest(`/verify/${reportId}/assertions/${assertionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdict, note }),
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Regulatory monitoring (C018)
+// ---------------------------------------------------------------------------
+
+export type RegSource = {
+    id: string;
+    label: string;
+    jurisdiction: string;
+    url: string;
+};
+
+export type RegWatch = {
+    id: string;
+    name: string;
+    topics: string[];
+    jurisdictions: string[];
+    sources: string[];
+    active: boolean;
+    created_at: string;
+    new_count: number;
+};
+
+export type RegEvent = {
+    id: string;
+    source: string;
+    title: string;
+    url: string;
+    summary: string | null;
+    relevance: string | null;
+    published_at: string | null;
+    status: "new" | "seen";
+    created_at: string;
+};
+
+export async function listRegSources(): Promise<{ sources: RegSource[] }> {
+    return apiRequest(`/regwatch/sources`);
+}
+
+export async function listRegWatches(): Promise<{ watches: RegWatch[] }> {
+    return apiRequest(`/regwatch`);
+}
+
+export async function createRegWatch(input: {
+    name: string;
+    topics?: string[];
+    jurisdictions?: string[];
+    sources?: string[];
+}): Promise<{ watch: RegWatch }> {
+    return apiRequest(`/regwatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+export async function deleteRegWatch(id: string): Promise<void> {
+    await apiRequest(`/regwatch/${id}`, { method: "DELETE" });
+}
+
+export async function getRegWatchEvents(
+    id: string,
+): Promise<{ events: RegEvent[] }> {
+    return apiRequest(`/regwatch/${id}/events`);
+}
+
+export async function markRegEventsSeen(id: string): Promise<void> {
+    await apiRequest(`/regwatch/${id}/events/seen`, { method: "POST" });
+}
+
+export async function triggerRegScan(): Promise<{ newEvents: number }> {
+    return apiRequest(`/regwatch/scan`, { method: "POST" });
+}
+
+
+// ---------------------------------------------------------------------------
+// Admin — analytics / audit / knowledge (C004, C019, C036)
+// ---------------------------------------------------------------------------
+
+export type AdminAnalytics = {
+    windowDays: number;
+    activeUsers: { d7: number; d30: number };
+    totalCostAud: number;
+    costByDay: { date: string; costAud: number }[];
+    costByModel: { model: string; costAud: number; calls: number }[];
+    costBySource: { source: string; costAud: number; calls: number }[];
+    toolUsage: { tool: string; count: number }[];
+    eventTypes: { type: string; count: number }[];
+    cohorts: { cohort: string; users: number; costAud: number; calls: number }[];
+};
+
+export async function adminGetAnalytics(days = 30): Promise<AdminAnalytics> {
+    return apiRequest(`/admin/analytics?days=${days}`);
+}
+
+export type AdminAuditEvent = {
+    id: string;
+    actor_email: string;
+    project_id: string | null;
+    event_type: string;
+    resource_type: string | null;
+    resource_id: string | null;
+    tool_name: string | null;
+    detail: Record<string, unknown> | null;
+    created_at: string;
+};
+
+export async function adminGetAudit(params?: {
+    user?: string;
+    tool?: string;
+    type?: string;
+}): Promise<{ events: AdminAuditEvent[] }> {
+    const qs = new URLSearchParams();
+    if (params?.user) qs.set("user", params.user);
+    if (params?.tool) qs.set("tool", params.tool);
+    if (params?.type) qs.set("type", params.type);
+    const q = qs.toString();
+    return apiRequest(`/admin/audit${q ? `?${q}` : ""}`);
+}
+
+export type AdminKnowledge = {
+    playbooks: { id: string; name: string; agreement_type: string | null; owner_email: string; rule_count: number; updated_at: string }[];
+    kb_documents: { id: string; title: string; doc_type: string; owner_email: string; chunk_count: number; created_at: string }[];
+    clauses: { id: string; title: string; agreement_type: string | null; owner_email: string; created_at: string }[];
+};
+
+export async function adminGetKnowledge(): Promise<AdminKnowledge> {
+    return apiRequest(`/admin/knowledge`);
+}
+
+export async function exportOutput(input: {
+    title?: string;
+    content: string;
+    format: "docx" | "pdf" | "md";
+    citation_style?: "as_written" | "aglc4";
+}): Promise<Blob> {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(`${API_BASE}/download/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify(input),
+    });
+    if (!response.ok) throw await toApiError(response, "/download/export");
+    return response.blob();
+}
+
+// ---------------------------------------------------------------------------
+// Project members / RBAC (P3 — C019)
+// ---------------------------------------------------------------------------
+
+export type ProjectMemberRole = "owner" | "editor" | "reviewer" | "viewer";
+
+export type ProjectMember = {
+    id: string;
+    user_id: string;
+    role: ProjectMemberRole;
+    email: string | null;
+    display_name: string | null;
+};
+
+export async function getProjectMembers(projectId: string): Promise<{
+    role: ProjectMemberRole;
+    members: ProjectMember[];
+}> {
+    return apiRequest(`/projects/${projectId}/members`);
+}
+
+export async function upsertProjectMember(
+    projectId: string,
+    email: string,
+    role: Exclude<ProjectMemberRole, "owner">,
+): Promise<void> {
+    await apiRequest(`/projects/${projectId}/members`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, role }),
+    });
+}
+
+export async function removeProjectMember(
+    projectId: string,
+    memberUserId: string,
+): Promise<void> {
+    await apiRequest(`/projects/${projectId}/members/${memberUserId}`, {
+        method: "DELETE",
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Personal access tokens (C007 MCP server)
+// ---------------------------------------------------------------------------
+
+export type Pat = {
+    id: string;
+    name: string;
+    last_used_at: string | null;
+    revoked_at: string | null;
+    created_at: string;
+};
+
+export async function listPats(): Promise<{ tokens: Pat[] }> {
+    return apiRequest(`/pats`);
+}
+
+export async function createPat(
+    name: string,
+): Promise<{ token: string; pat: Pat }> {
+    return apiRequest(`/pats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+    });
+}
+
+export async function revokePat(id: string): Promise<void> {
+    await apiRequest(`/pats/${id}`, { method: "DELETE" });
 }

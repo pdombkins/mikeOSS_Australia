@@ -38,10 +38,13 @@ import {
     filterAccessibleDocumentIds,
 } from "../lib/access";
 import { safeErrorLog, safeErrorMessage } from "../lib/safeError";
+import { extractDocumentMarkdown } from "../lib/extractText";
 import {
     findMissingUserEmails,
     loadProfileUsersByEmail,
 } from "../lib/userLookup";
+import { notify } from "../lib/notifications";
+import { recordAudit } from "../lib/audit";
 
 function formatPromptSuffix(format?: string, tags?: string[]): string {
     switch (format) {
@@ -764,6 +767,8 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
         prompt: string;
         format?: string;
         tags?: string[];
+        type?: string;
+        reference_document_id?: string;
     }[] = review.columns_config ?? [];
     if (columns.length === 0)
         return void res.status(400).json({ detail: "No columns configured" });
@@ -814,6 +819,72 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
             code: "missing_api_key",
             ...missingKey,
         });
+    }
+
+    // C031 — extract fixed per-column reference documents once.
+    const referenceTexts = new Map<number, { name: string; text: string }>();
+    {
+        const refIds = [
+            ...new Set(
+                columns
+                    .map((c) => c.reference_document_id)
+                    .filter((v): v is string => typeof v === "string" && !!v),
+            ),
+        ];
+        const allowedRefIds = new Set(
+            await filterAccessibleDocumentIds(refIds, userId, userEmail, db),
+        );
+        if (allowedRefIds.size > 0) {
+            const { data: refDocs } = await db
+                .from("documents")
+                .select("id, current_version_id")
+                .in("id", [...allowedRefIds]);
+            const refRows = (refDocs ?? []) as {
+                id: string;
+                current_version_id?: string | null;
+                filename?: string;
+                storage_path?: string;
+                file_type?: string;
+            }[];
+            await attachActiveVersionPaths(db, refRows);
+            const textById = new Map<string, { name: string; text: string }>();
+            for (const rd of refRows) {
+                const path =
+                    typeof rd.storage_path === "string" ? rd.storage_path : "";
+                if (!path) continue;
+                try {
+                    const buf = await downloadFile(path);
+                    if (!buf) continue;
+                    const text = await extractDocumentMarkdown(
+                        buf,
+                        typeof rd.file_type === "string" ? rd.file_type : "",
+                    );
+                    textById.set(rd.id, {
+                        name:
+                            typeof rd.filename === "string" && rd.filename
+                                ? rd.filename
+                                : "Reference document",
+                        text,
+                    });
+                } catch (err) {
+                    console.error(
+                        `[tabular/generate] reference doc extraction failed ${rd.id}`,
+                        safeErrorLog(err),
+                    );
+                }
+            }
+            for (const col of columns) {
+                if (
+                    col.reference_document_id &&
+                    textById.has(col.reference_document_id)
+                ) {
+                    referenceTexts.set(
+                        col.index,
+                        textById.get(col.reference_document_id)!,
+                    );
+                }
+            }
+        }
     }
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -907,6 +978,7 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
                             );
                         },
                         api_keys,
+                        referenceTexts,
                     );
                 } catch (err) {
                     console.error(
@@ -931,6 +1003,15 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
                 }
             }),
         );
+
+        // C032 — completion notification for long-running reviews.
+        await notify({
+            userId: review.user_id as string,
+            kind: "tabular_review",
+            title: `Tabular review complete: ${review.title ?? "Untitled review"}`,
+            body: `${docs.length} document${docs.length === 1 ? "" : "s"} processed.`,
+            link: `/tabular-reviews/${reviewId}`,
+        }).catch(() => {});
 
         write("data: [DONE]\n\n");
     } catch (err) {
@@ -1645,6 +1726,10 @@ type CellResult = {
     summary: string;
     flag: "green" | "grey" | "yellow" | "red";
     reasoning: string;
+    /** C015 typed extraction extras */
+    value?: unknown;
+    currency?: string;
+    severity?: "low" | "medium" | "high";
 };
 type Column = {
     index: number;
@@ -1652,6 +1737,19 @@ type Column = {
     prompt: string;
     format?: string;
     tags?: string[];
+    /** C015 — typed extraction: text | date | money | duration | boolean | risk */
+    type?: string;
+    /** C031 — fixed reference document evaluated against every row. */
+    reference_document_id?: string;
+};
+
+const COLUMN_TYPE_HINTS: Record<string, string> = {
+    date: 'Also include "value": the extracted date in ISO 8601 (YYYY-MM-DD), or null.',
+    money: 'Also include "value": the numeric amount (no symbols) and "currency" (e.g. "AUD"), or null.',
+    duration: 'Also include "value": the duration normalised to days (number), or null.',
+    boolean: 'Also include "value": true or false, or null if indeterminate.',
+    risk: 'Also include "severity": "low", "medium" or "high" for the identified risk (align flag: low=green/grey, medium=yellow, high=red).',
+    text: "",
 };
 
 async function queryTabularAllColumns(
@@ -1661,14 +1759,30 @@ async function queryTabularAllColumns(
     columns: Column[],
     onResult: (columnIndex: number, result: CellResult) => Promise<void>,
     apiKeys?: import("../lib/llm").UserApiKeys,
+    referenceTexts?: Map<number, { name: string; text: string }>,
 ): Promise<void> {
     const columnsDesc = columns
         .map((col) => {
             const suffix = formatPromptSuffix(col.format as never, col.tags);
-            const fullPrompt = `${col.prompt}${suffix} If not found, state "Not Found".`;
+            const typeHint = col.type ? (COLUMN_TYPE_HINTS[col.type] ?? "") : "";
+            const refHint = referenceTexts?.has(col.index)
+                ? ` Evaluate this document AGAINST the reference document provided for this column below.`
+                : "";
+            const fullPrompt = `${col.prompt}${suffix} If not found, state "Not Found".${typeHint ? ` ${typeHint}` : ""}${refHint}`;
             return `Column ${col.index} — "${col.name}": ${fullPrompt}`;
         })
         .join("\n");
+
+    // C031 — fixed per-column reference documents (templates, standards,
+    // playbook exports) included once instead of restated in each prompt.
+    const referenceDesc = referenceTexts?.size
+        ? `\n\n---\nReference documents (fixed context for specific columns):\n${[...referenceTexts.entries()]
+              .map(
+                  ([idx, ref]) =>
+                      `Reference for Column ${idx} — "${ref.name}":\n${ref.text.slice(0, 30_000)}`,
+              )
+              .join("\n\n")}`
+        : "";
 
     const SYSTEM = `You are a legal document analyst. Extract information for each column listed below.
 
@@ -1676,6 +1790,7 @@ For each column, output exactly one minified JSON object on its own line (no lin
 
 Line format:
 {"column_index": <N>, "summary": <string>, "flag": <"green"|"grey"|"yellow"|"red">, "reasoning": <string>}
+Some columns ask for additional fields ("value", "currency", "severity") — include them in that column's JSON line when requested.
 
 Rules:
 - "summary": the extracted value with inline citations [[page:N||quote:verbatim excerpt ≤25 words]] after every factual claim. No explanation or reasoning here. Quotes must be narrowly scoped to the specific claim — extract only the exact supporting words, not the full surrounding sentence. Do not reuse one long quote across multiple statements; give each claim its own short, precise quote.
@@ -1684,7 +1799,7 @@ Rules:
 - The "summary" and "reasoning" string VALUES may use markdown (bullets, bold, italics, etc.) — escape newlines as \\n inside the JSON string. This markdown is rendered in the UI.
 - Output ONLY the JSON lines themselves. Do NOT wrap the response in markdown code fences (e.g. \`\`\`json), and do not add any preamble or summary.`;
 
-    const USER = `Document: ${filename}\n\n${documentText.slice(0, 120_000)}\n\n---\nColumns to extract:\n${columnsDesc}`;
+    const USER = `Document: ${filename}\n\n${documentText.slice(0, 120_000)}\n\n---\nColumns to extract:\n${columnsDesc}${referenceDesc}`;
 
     let contentBuffer = "";
     const pending: Promise<unknown>[] = [];
@@ -1702,6 +1817,11 @@ Rules:
             if (typeof parsed.column_index !== "number") return;
             const col = columns.find((c) => c.index === parsed.column_index);
             if (!col) return;
+            const extras = parsed as {
+                value?: unknown;
+                currency?: unknown;
+                severity?: unknown;
+            };
             await onResult(parsed.column_index, {
                 summary: String(parsed.summary ?? "").trim() || "Not addressed",
                 flag: (["green", "grey", "yellow", "red"] as const).includes(
@@ -1710,6 +1830,15 @@ Rules:
                     ? (parsed.flag as CellResult["flag"])
                     : "grey",
                 reasoning: String(parsed.reasoning ?? ""),
+                ...(extras.value !== undefined ? { value: extras.value } : {}),
+                ...(typeof extras.currency === "string"
+                    ? { currency: extras.currency }
+                    : {}),
+                ...(extras.severity === "low" ||
+                extras.severity === "medium" ||
+                extras.severity === "high"
+                    ? { severity: extras.severity }
+                    : {}),
             });
         } catch {
             // malformed line — skip
@@ -1746,93 +1875,164 @@ Rules:
     await Promise.all(pending);
 }
 
-async function extractDocumentMarkdown(
-    buf: ArrayBuffer,
-    fileType: string | null | undefined,
-): Promise<string> {
-    const normalizedType = (fileType ?? "").toLowerCase();
-    if (normalizedType === "pdf") return extractPdfMarkdown(buf);
-    if (normalizedType === "docx") return extractDocxMarkdown(buf);
-    if (isSpreadsheetDocumentType(normalizedType)) {
-        // SheetJS handles .xlsx/.xlsm/.xls directly, no PDF detour.
-        return spreadsheetToLLMText(Buffer.from(buf));
-    }
-    if (normalizedType === "pptx") {
-        return extractPresentationText(Buffer.from(buf));
-    }
-    if (
-        isPresentationDocumentType(normalizedType) ||
-        isWordDocumentType(normalizedType)
-    ) {
-        const pdfBuf = await docxToPdf(Buffer.from(buf));
-        const pdfArrayBuffer = pdfBuf.buffer.slice(
-            pdfBuf.byteOffset,
-            pdfBuf.byteOffset + pdfBuf.byteLength,
-        ) as ArrayBuffer;
-        return extractPdfMarkdown(pdfArrayBuffer);
-    }
-    return extractDocxMarkdown(buf);
-}
+// ---------------------------------------------------------------------------
+// C032 — in-line manual cell editing. Stores the human override in place,
+// preserving the AI value for provenance; audit-logged.
+// PATCH /tabular-review/:reviewId/cells/:documentId/:columnIndex { summary }
+// ---------------------------------------------------------------------------
+tabularRouter.patch(
+    "/:reviewId/cells/:documentId/:columnIndex",
+    requireAuth,
+    async (req, res) => {
+        const userId = res.locals.userId as string;
+        const userEmail = res.locals.userEmail as string | undefined;
+        const { reviewId, documentId } = req.params;
+        const columnIndex = parseInt(req.params.columnIndex, 10);
+        if (!Number.isFinite(columnIndex))
+            return void res.status(400).json({ detail: "Bad column index" });
+        const summary =
+            typeof req.body?.summary === "string" ? req.body.summary : null;
+        if (summary === null)
+            return void res.status(400).json({ detail: "summary is required" });
 
-async function extractPdfMarkdown(buf: ArrayBuffer): Promise<string> {
-    try {
-        const pdfjsLib = await import(
-            "pdfjs-dist/legacy/build/pdf.mjs" as string
-        );
-        const pdf = await (
-            pdfjsLib as unknown as {
-                getDocument: (opts: unknown) => {
-                    promise: Promise<{
-                        numPages: number;
-                        getPage: (n: number) => Promise<{
-                            getTextContent: () => Promise<{
-                                items: { str?: string; hasEOL?: boolean }[];
-                            }>;
-                        }>;
-                    }>;
-                };
-            }
-        ).getDocument({ data: new Uint8Array(buf) }).promise;
-        const pages: string[] = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const tc = await page.getTextContent();
-            const text = tc.items
-                .filter((it): it is { str: string } => "str" in it)
-                .map((it) => it.str)
-                .join(" ")
-                .trim();
-            if (text) pages.push(`## Page ${i}\n\n${text}`);
+        const db = createServerSupabase();
+        const { data: review } = await db
+            .from("tabular_reviews")
+            .select("id, user_id, project_id, shared_with")
+            .eq("id", reviewId)
+            .single();
+        if (!review)
+            return void res.status(404).json({ detail: "Review not found" });
+        const access = await ensureReviewAccess(review, userId, userEmail, db);
+        if (!access.ok)
+            return void res.status(404).json({ detail: "Review not found" });
+
+        const { data: cell } = await db
+            .from("tabular_cells")
+            .select("id, content")
+            .eq("review_id", reviewId)
+            .eq("document_id", documentId)
+            .eq("column_index", columnIndex)
+            .maybeSingle();
+
+        let existing: Record<string, unknown> = {};
+        try {
+            if (cell?.content) existing = JSON.parse(cell.content as string);
+        } catch {
+            /* start fresh */
         }
-        return pages.join("\n\n");
-    } catch {
-        return "";
-    }
-}
+        const updated = {
+            ...existing,
+            summary,
+            manual: true,
+            edited_by: userId,
+            edited_at: new Date().toISOString(),
+            // Preserve the original AI value once, on first manual edit.
+            ...(existing.manual
+                ? {}
+                : { ai_summary: existing.summary ?? null }),
+        };
 
-async function extractDocxMarkdown(buf: ArrayBuffer): Promise<string> {
-    try {
-        const mammoth = await import("mammoth");
-        const normalized = await normalizeDocxZipPaths(Buffer.from(buf));
-        const { value: html } = await mammoth.convertToHtml({
-            buffer: normalized,
+        if (cell) {
+            await db
+                .from("tabular_cells")
+                .update({ content: JSON.stringify(updated), status: "done" })
+                .eq("id", cell.id);
+        } else {
+            await db.from("tabular_cells").insert({
+                review_id: reviewId,
+                document_id: documentId,
+                column_index: columnIndex,
+                content: JSON.stringify(updated),
+                status: "done",
+            });
+        }
+        recordAudit({
+            actorId: userId,
+            eventType: "doc_edit",
+            projectId: (review.project_id as string | null) ?? null,
+            resourceType: "tabular_review",
+            resourceId: reviewId,
+            detail: { action: "manual_cell_edit", documentId, columnIndex },
         });
-        return html
-            .replace(
-                /<h([1-6])[^>]*>(.*?)<\/h\1>/gi,
-                (_, l, t) => "#".repeat(Number(l)) + " " + t + "\n\n",
-            )
-            .replace(/<strong[^>]*>(.*?)<\/strong>/gi, "**$1**")
-            .replace(/<li[^>]*>(.*?)<\/li>/gi, "- $1\n")
-            .replace(/<p[^>]*>(.*?)<\/p>/gi, "$1\n\n")
-            .replace(/<[^>]+>/g, "")
-            .replace(/&nbsp;/g, " ")
-            .replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim();
-    } catch {
-        return "";
+        res.json({ ok: true, content: updated });
+    },
+);
+
+// ---------------------------------------------------------------------------
+// C025 — Tabular Analysis: one question across many documents.
+// POST /tabular-review/ask { question, document_ids?, project_id?, title? }
+// Creates a single-column review; the client navigates to it and triggers
+// /generate. Also used by the agent tool `tabular_ask`.
+// ---------------------------------------------------------------------------
+tabularRouter.post("/ask", requireAuth, async (req, res) => {
+    const userId = res.locals.userId as string;
+    const userEmail = res.locals.userEmail as string | undefined;
+    const db = createServerSupabase();
+    const question =
+        typeof req.body?.question === "string" ? req.body.question.trim() : "";
+    if (!question)
+        return void res.status(400).json({ detail: "question is required" });
+    const projectId =
+        typeof req.body?.project_id === "string" ? req.body.project_id : null;
+    if (projectId) {
+        const access = await checkProjectAccess(projectId, userId, userEmail, db);
+        if (!access.ok)
+            return void res.status(404).json({ detail: "Project not found" });
     }
-}
+    let documentIds = Array.isArray(req.body?.document_ids)
+        ? await filterAccessibleDocumentIds(
+              (req.body.document_ids as unknown[]).filter(
+                  (v): v is string => typeof v === "string",
+              ),
+              userId,
+              userEmail,
+              db,
+          )
+        : [];
+    if (documentIds.length === 0 && projectId) {
+        const { data } = await db
+            .from("documents")
+            .select("id")
+            .eq("project_id", projectId)
+            .order("created_at", { ascending: true })
+            .limit(100);
+        documentIds = (data ?? []).map((d) => d.id as string);
+    }
+    if (documentIds.length === 0)
+        return void res
+            .status(400)
+            .json({ detail: "No accessible documents to analyse" });
+
+    const title =
+        typeof req.body?.title === "string" && req.body.title.trim()
+            ? req.body.title.trim()
+            : question.slice(0, 80);
+    const columnsConfig = [
+        { index: 0, name: "Answer", prompt: question, type: "text" },
+    ];
+    const { data: review, error } = await db
+        .from("tabular_reviews")
+        .insert({
+            user_id: userId,
+            title,
+            columns_config: columnsConfig,
+            document_ids: documentIds,
+            project_id: projectId,
+        })
+        .select("id")
+        .single();
+    if (error || !review)
+        return void res
+            .status(500)
+            .json({ detail: error?.message ?? "Failed to create analysis" });
+    await db.from("tabular_cells").insert(
+        documentIds.map((docId) => ({
+            review_id: review.id,
+            document_id: docId,
+            column_index: 0,
+            status: "pending",
+        })),
+    );
+    res.status(201).json({ review_id: review.id, document_count: documentIds.length });
+});

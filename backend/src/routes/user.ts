@@ -162,7 +162,7 @@ function mcpOAuthPopupCsp(nonce: string) {
 }
 
 const PROFILE_SELECT =
-    "display_name, organisation, message_credits_used, credits_reset_date, tier, title_model, tabular_model, mfa_on_login, legal_research_us, is_admin";
+    "display_name, organisation, message_credits_used, credits_reset_date, tier, title_model, tabular_model, mfa_on_login, legal_research_us, is_admin, personal_context, email_notifications";
 const PROFILE_SELECT_NO_LEGAL =
     "display_name, organisation, message_credits_used, credits_reset_date, tier, title_model, tabular_model, mfa_on_login";
 const LEGACY_PROFILE_SELECT =
@@ -296,6 +296,12 @@ function serializeProfile(row: UserProfileRow, apiKeyStatus?: ApiKeyStatus) {
         mfaOnLogin: row.mfa_on_login === true,
         legalResearchUs: row.legal_research_us !== false,
         isAdmin: row.is_admin === true,
+        personalContext:
+            (row as { personal_context?: string | null }).personal_context ??
+            null,
+        emailNotifications:
+            (row as { email_notifications?: boolean }).email_notifications ===
+            true,
         ...(apiKeyStatus ? { apiKeyStatus } : {}),
     };
 }
@@ -324,6 +330,8 @@ function validateProfilePayload(body: unknown):
         "titleModel",
         "tabularModel",
         "legalResearchUs",
+        "personalContext",
+        "emailNotifications",
     ]);
     const invalidField = Object.keys(raw).find(
         (key) => !allowedFields.has(key),
@@ -341,8 +349,36 @@ function validateProfilePayload(body: unknown):
         title_model?: string;
         tabular_model?: string;
         legal_research_us?: boolean;
+        personal_context?: string | null;
+        email_notifications?: boolean;
         updated_at: string;
     } = { updated_at: new Date().toISOString() };
+
+    // C033 — per-user context appended to drafting/review prompts.
+    if ("personalContext" in raw) {
+        if (
+            raw.personalContext !== null &&
+            typeof raw.personalContext !== "string"
+        ) {
+            return {
+                ok: false,
+                detail: "personalContext must be a string or null",
+            };
+        }
+        update.personal_context =
+            raw.personalContext?.trim().slice(0, 10_000) || null;
+    }
+
+    // P2 — email notification opt-in.
+    if ("emailNotifications" in raw) {
+        if (typeof raw.emailNotifications !== "boolean") {
+            return {
+                ok: false,
+                detail: "emailNotifications must be a boolean",
+            };
+        }
+        update.email_notifications = raw.emailNotifications;
+    }
 
     if ("displayName" in raw) {
         if (raw.displayName !== null && typeof raw.displayName !== "string") {

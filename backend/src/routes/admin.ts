@@ -17,6 +17,7 @@ import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
 import {
   APP_SETTING_KEYS,
+  getAppSetting,
   getJadeAccessApproved,
   setAppSetting,
 } from "../lib/appSettings";
@@ -186,7 +187,8 @@ adminRouter.delete("/invitations/:id", async (req, res) => {
 
 adminRouter.get("/settings", async (_req, res) => {
   const jadeAccessApproved = await getJadeAccessApproved();
-  res.json({ jadeAccessApproved });
+  const orgContext = await getAppSetting<string>("org_context", "");
+  res.json({ jadeAccessApproved, orgContext });
 });
 
 // ── PUT /admin/settings ───────────────────────────────────────────────────────
@@ -197,19 +199,30 @@ adminRouter.put("/settings", async (req, res) => {
       ? (req.body as Record<string, unknown>)
       : {};
 
-  if (typeof body.jadeAccessApproved !== "boolean") {
+  const updates: Record<string, unknown> = {};
+  if (typeof body.jadeAccessApproved === "boolean") {
+    await setAppSetting(
+      APP_SETTING_KEYS.jadeAccessApproved,
+      body.jadeAccessApproved,
+      res.locals.userId as string,
+    );
+    updates.jadeAccessApproved = body.jadeAccessApproved;
+  }
+  // C033 — org-wide context applied to drafting/review/redline prompts.
+  if (typeof body.orgContext === "string") {
+    await setAppSetting(
+      "org_context",
+      body.orgContext.slice(0, 20_000),
+      res.locals.userId as string,
+    );
+    updates.orgContext = body.orgContext.slice(0, 20_000);
+  }
+  if (Object.keys(updates).length === 0) {
     return void res
       .status(400)
-      .json({ detail: "jadeAccessApproved (boolean) is required" });
+      .json({ detail: "No recognised settings in body" });
   }
-
-  await setAppSetting(
-    APP_SETTING_KEYS.jadeAccessApproved,
-    body.jadeAccessApproved,
-    res.locals.userId as string,
-  );
-
-  res.json({ jadeAccessApproved: body.jadeAccessApproved });
+  res.json(updates);
 });
 
 // ── GET /admin/costs ──────────────────────────────────────────────────────────
@@ -278,4 +291,272 @@ adminRouter.get("/costs", async (req, res) => {
     offset,
     limit,
   });
+});
+
+// ---------------------------------------------------------------------------
+// P3 (C019) — audit trail viewer.
+// GET /admin/audit?user=<uuid>&project=<uuid>&tool=<name>&type=<event_type>
+//                 &from=<iso>&to=<iso>&limit=<n>&format=csv
+// ---------------------------------------------------------------------------
+adminRouter.get("/audit", async (req, res) => {
+  const db = createServerSupabase();
+  const limit = Math.min(
+    Math.max(parseInt(String(req.query.limit ?? "200"), 10) || 200, 1),
+    1000,
+  );
+  let query = db
+    .from("audit_events")
+    .select(
+      "id, actor_id, project_id, event_type, resource_type, resource_id, tool_name, detail, created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (typeof req.query.user === "string" && req.query.user)
+    query = query.eq("actor_id", req.query.user);
+  if (typeof req.query.project === "string" && req.query.project)
+    query = query.eq("project_id", req.query.project);
+  if (typeof req.query.tool === "string" && req.query.tool)
+    query = query.eq("tool_name", req.query.tool);
+  if (typeof req.query.type === "string" && req.query.type)
+    query = query.eq("event_type", req.query.type);
+  if (typeof req.query.from === "string" && req.query.from)
+    query = query.gte("created_at", req.query.from);
+  if (typeof req.query.to === "string" && req.query.to)
+    query = query.lte("created_at", req.query.to);
+
+  const { data, error } = await query;
+  if (error) return void res.status(500).json({ detail: error.message });
+  const rows = data ?? [];
+
+  // Resolve actor emails for display.
+  const { data: profiles } = await db
+    .from("user_profiles")
+    .select("user_id, email");
+  const emailById = new Map<string, string>(
+    (profiles ?? []).map((p: { user_id: string; email: string | null }) => [
+      p.user_id,
+      p.email ?? p.user_id,
+    ]),
+  );
+  const enriched = rows.map((r) => ({
+    ...r,
+    actor_email: emailById.get(r.actor_id as string) ?? r.actor_id,
+  }));
+
+  if (req.query.format === "csv") {
+    const header =
+      "created_at,actor_email,event_type,resource_type,resource_id,tool_name,project_id,detail";
+    const lines = enriched.map((r) =>
+      [
+        r.created_at,
+        r.actor_email,
+        r.event_type,
+        r.resource_type ?? "",
+        r.resource_id ?? "",
+        r.tool_name ?? "",
+        r.project_id ?? "",
+        JSON.stringify(r.detail ?? {}),
+      ]
+        .map((v) => `"${String(v).replaceAll('"', '""')}"`)
+        .join(","),
+    );
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="mike-audit.csv"',
+    );
+    return void res.send([header, ...lines].join("\n"));
+  }
+  res.json({ events: enriched });
+});
+
+
+// ---------------------------------------------------------------------------
+// C036 — workspace knowledge management: every playbook, KB document and
+// clause across all users, with owner + counts.
+// ---------------------------------------------------------------------------
+adminRouter.get("/knowledge", async (_req, res) => {
+  const db = createServerSupabase();
+  const [{ data: playbooks }, { data: rules }, { data: kbDocs }, { data: kbChunks }, { data: clauses }, { data: profiles }] =
+    await Promise.all([
+      db.from("playbooks").select("id, owner_id, name, agreement_type, description, updated_at"),
+      db.from("playbook_rules").select("playbook_id"),
+      db.from("kb_documents").select("id, owner_id, title, doc_type, source, created_at"),
+      db.from("kb_chunks").select("document_id"),
+      db.from("clauses").select("id, owner_id, title, agreement_type, created_at"),
+      db.from("user_profiles").select("user_id, email, display_name"),
+    ]);
+  const emailById = new Map<string, string>(
+    (profiles ?? []).map((p: { user_id: string; email: string | null }) => [
+      p.user_id,
+      p.email ?? p.user_id,
+    ]),
+  );
+  const ruleCounts = new Map<string, number>();
+  for (const r of rules ?? []) {
+    ruleCounts.set(r.playbook_id as string, (ruleCounts.get(r.playbook_id as string) ?? 0) + 1);
+  }
+  const chunkCounts = new Map<string, number>();
+  for (const c of kbChunks ?? []) {
+    chunkCounts.set(c.document_id as string, (chunkCounts.get(c.document_id as string) ?? 0) + 1);
+  }
+  res.json({
+    playbooks: (playbooks ?? []).map((p) => ({
+      ...p,
+      owner_email: emailById.get(p.owner_id as string) ?? p.owner_id,
+      rule_count: ruleCounts.get(p.id as string) ?? 0,
+    })),
+    kb_documents: (kbDocs ?? []).map((d) => ({
+      ...d,
+      owner_email: emailById.get(d.owner_id as string) ?? d.owner_id,
+      chunk_count: chunkCounts.get(d.id as string) ?? 0,
+    })),
+    clauses: (clauses ?? []).map((c) => ({
+      ...c,
+      owner_email: emailById.get(c.owner_id as string) ?? c.owner_id,
+    })),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C004 — Command Center: adoption analytics + cohort comparison.
+// GET /admin/analytics?days=30
+// ---------------------------------------------------------------------------
+adminRouter.get("/analytics", async (req, res) => {
+  const db = createServerSupabase();
+  const days = Math.min(
+    Math.max(parseInt(String(req.query.days ?? "30"), 10) || 30, 1),
+    365,
+  );
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  const [{ data: costs }, { data: audits }, { data: profiles }] =
+    await Promise.all([
+      db
+        .from("query_costs")
+        .select("user_id, model, source, input_tokens, output_tokens, cost_aud, created_at")
+        .gte("created_at", since)
+        .limit(20000),
+      db
+        .from("audit_events")
+        .select("actor_id, event_type, tool_name, created_at")
+        .gte("created_at", since)
+        .limit(20000),
+      db.from("user_profiles").select("user_id, email, cohort"),
+    ]);
+
+  const cohortByUser = new Map<string, string>(
+    (profiles ?? []).map((p: { user_id: string; cohort: string | null }) => [
+      p.user_id,
+      p.cohort ?? "(no cohort)",
+    ]),
+  );
+
+  const day = (iso: string) => iso.slice(0, 10);
+  const activeByWindow = (windowDays: number) => {
+    const cutoff = Date.now() - windowDays * 86_400_000;
+    const users = new Set<string>();
+    for (const r of costs ?? []) {
+      if (Date.parse(r.created_at as string) >= cutoff)
+        users.add(r.user_id as string);
+    }
+    for (const a of audits ?? []) {
+      if (Date.parse(a.created_at as string) >= cutoff)
+        users.add(a.actor_id as string);
+    }
+    return users.size;
+  };
+
+  const costByDay = new Map<string, number>();
+  const costByModel = new Map<string, { costAud: number; calls: number }>();
+  const costBySource = new Map<string, { costAud: number; calls: number }>();
+  const byCohort = new Map<
+    string,
+    { users: Set<string>; costAud: number; calls: number }
+  >();
+  for (const r of costs ?? []) {
+    const d = day(r.created_at as string);
+    const aud = Number(r.cost_aud) || 0;
+    costByDay.set(d, (costByDay.get(d) ?? 0) + aud);
+    const model = (r.model as string) ?? "unknown";
+    const m = costByModel.get(model) ?? { costAud: 0, calls: 0 };
+    m.costAud += aud;
+    m.calls += 1;
+    costByModel.set(model, m);
+    const source = (r.source as string) ?? "unknown";
+    const s = costBySource.get(source) ?? { costAud: 0, calls: 0 };
+    s.costAud += aud;
+    s.calls += 1;
+    costBySource.set(source, s);
+    const cohort = cohortByUser.get(r.user_id as string) ?? "(no cohort)";
+    const c = byCohort.get(cohort) ?? {
+      users: new Set<string>(),
+      costAud: 0,
+      calls: 0,
+    };
+    c.users.add(r.user_id as string);
+    c.costAud += aud;
+    c.calls += 1;
+    byCohort.set(cohort, c);
+  }
+
+  const toolUsage = new Map<string, number>();
+  const eventTypes = new Map<string, number>();
+  for (const a of audits ?? []) {
+    if (a.tool_name)
+      toolUsage.set(
+        a.tool_name as string,
+        (toolUsage.get(a.tool_name as string) ?? 0) + 1,
+      );
+    eventTypes.set(
+      a.event_type as string,
+      (eventTypes.get(a.event_type as string) ?? 0) + 1,
+    );
+  }
+
+  res.json({
+    windowDays: days,
+    activeUsers: { d7: activeByWindow(7), d30: activeByWindow(30) },
+    totalCostAud: [...costByDay.values()].reduce((a, b) => a + b, 0),
+    costByDay: [...costByDay.entries()]
+      .sort()
+      .map(([date, costAud]) => ({ date, costAud })),
+    costByModel: [...costByModel.entries()]
+      .map(([model, v]) => ({ model, ...v }))
+      .sort((a, b) => b.costAud - a.costAud),
+    costBySource: [...costBySource.entries()]
+      .map(([source, v]) => ({ source, ...v }))
+      .sort((a, b) => b.costAud - a.costAud),
+    toolUsage: [...toolUsage.entries()]
+      .map(([tool, count]) => ({ tool, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 25),
+    eventTypes: [...eventTypes.entries()].map(([type, count]) => ({
+      type,
+      count,
+    })),
+    cohorts: [...byCohort.entries()]
+      .map(([cohort, v]) => ({
+        cohort,
+        users: v.users.size,
+        costAud: v.costAud,
+        calls: v.calls,
+      }))
+      .sort((a, b) => b.costAud - a.costAud),
+  });
+});
+
+// PATCH /admin/users/:userId/cohort { cohort } — C004 cohort tagging.
+adminRouter.patch("/users/:userId/cohort", async (req, res) => {
+  const db = createServerSupabase();
+  const cohort =
+    typeof req.body?.cohort === "string" && req.body.cohort.trim()
+      ? req.body.cohort.trim().slice(0, 100)
+      : null;
+  const { error } = await db
+    .from("user_profiles")
+    .update({ cohort })
+    .eq("user_id", req.params.userId);
+  if (error) return void res.status(500).json({ detail: error.message });
+  res.json({ ok: true, cohort });
 });

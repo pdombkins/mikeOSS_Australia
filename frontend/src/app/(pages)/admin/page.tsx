@@ -81,6 +81,9 @@ export default function AdminPage() {
     const [loadingCosts, setLoadingCosts] = useState(false);
 
     const [jadeApproved, setJadeApproved] = useState<boolean | null>(null);
+    const [orgContext, setOrgContext] = useState("");
+    const [orgContextSaving, setOrgContextSaving] = useState(false);
+    const [orgContextSaved, setOrgContextSaved] = useState(false);
     const [savingJade, setSavingJade] = useState(false);
 
     // Redirect if not admin
@@ -101,6 +104,9 @@ export default function AdminPage() {
             setUsers(usersData);
             setInvitations(invitationsData);
             setJadeApproved(settingsData.jadeAccessApproved);
+            setOrgContext(
+                (settingsData as { orgContext?: string }).orgContext ?? "",
+            );
         } catch {
             // swallow — errors shown inline
         } finally {
@@ -224,6 +230,63 @@ export default function AdminPage() {
                             Manage who has access to this Mike OSS instance
                         </p>
                     </div>
+                </div>
+
+                {/* New admin surfaces (C004/C019/C036/C033) */}
+                <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {[
+                        ["/admin/analytics", "Command Center", "Adoption analytics, spend, cohorts"],
+                        ["/admin/audit", "Audit trail", "Every tool call and access event"],
+                        ["/admin/knowledge", "Workspace knowledge", "All playbooks, KB docs, clauses"],
+                    ].map(([href, title, desc]) => (
+                        <a
+                            key={href}
+                            href={href}
+                            className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200 transition-colors hover:bg-gray-50"
+                        >
+                            <p className="text-sm font-semibold text-gray-900">
+                                {title}
+                            </p>
+                            <p className="mt-0.5 text-xs text-gray-500">
+                                {desc}
+                            </p>
+                        </a>
+                    ))}
+                </div>
+
+                {/* C033 — organisation-wide context */}
+                <div className="mb-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+                    <h2 className="mb-2 text-sm font-semibold text-gray-900">
+                        Organisation context
+                    </h2>
+                    <p className="mb-2 text-sm text-gray-500">
+                        Applied to every user&apos;s drafting, review and
+                        redline prompts (e.g. standard negotiation positions,
+                        house style).
+                    </p>
+                    <textarea
+                        value={orgContext}
+                        onChange={(e) => setOrgContext(e.target.value)}
+                        rows={4}
+                        placeholder="e.g. We are a university legal clinic acting for community clients; prefer plain-English drafting; NSW governing law unless instructed otherwise…"
+                        className="w-full resize-y rounded-md border border-gray-200 p-3 text-sm outline-none focus:border-gray-400"
+                    />
+                    <button
+                        onClick={() => {
+                            setOrgContextSaving(true);
+                            void adminUpdateSettings({ orgContext })
+                                .then(() => setOrgContextSaved(true))
+                                .finally(() => setOrgContextSaving(false));
+                        }}
+                        disabled={orgContextSaving}
+                        className="mt-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                    >
+                        {orgContextSaving
+                            ? "Saving…"
+                            : orgContextSaved
+                              ? "Saved"
+                              : "Save context"}
+                    </button>
                 </div>
 
                 {/* Legal research — citation verification source */}

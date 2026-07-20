@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { useUserProfile } from "@/app/contexts/UserProfileContext";
+import { updateUserProfile } from "@/app/lib/mikeApi";
 import { useQuickActionsPreference } from "@/app/components/assistant/quickActionsPreferences";
 import { AccountSection } from "../AccountSection";
 import { AccountToggle } from "../AccountToggle";
@@ -48,6 +49,25 @@ export default function FeaturesPage() {
             setSaveError("Could not update. Try again.");
         }
     };
+
+    // C033 personal context + P2 email notifications
+    const [personalContext, setPersonalContext] = useState<string>("");
+    const [contextLoaded, setContextLoaded] = useState(false);
+    const [contextSaving, setContextSaving] = useState(false);
+    const [contextSaved, setContextSaved] = useState(false);
+    const [emailNotif, setEmailNotif] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        const p = profile as unknown as {
+            personalContext?: string | null;
+            emailNotifications?: boolean;
+        } | null;
+        if (p && !contextLoaded) {
+            setPersonalContext(p.personalContext ?? "");
+            setEmailNotif(p.emailNotifications ?? false);
+            setContextLoaded(true);
+        }
+    }, [profile, contextLoaded]);
 
     return (
         <div className="space-y-8">
@@ -149,6 +169,72 @@ export default function FeaturesPage() {
                                       : "Update"}
                             </button>
                         </div>
+                    </div>
+                </AccountSection>
+            </section>
+            <section className="space-y-3">
+                <h2 className="text-2xl font-medium font-serif text-gray-900">
+                    Personal context
+                </h2>
+                <AccountSection>
+                    <div className="px-4 py-5">
+                        <p className="mb-2 text-sm text-gray-500">
+                            Notes about you, your organisation and your standard
+                            positions. Mike applies this context to drafting,
+                            reviews and redlines.
+                        </p>
+                        <textarea
+                            value={personalContext}
+                            onChange={(e) => setPersonalContext(e.target.value)}
+                            rows={5}
+                            placeholder="e.g. I act for the supplier side; prefer NSW governing law; liability caps at 12 months' fees…"
+                            className="w-full resize-y rounded-md border border-gray-200 p-3 text-sm outline-none focus:border-gray-400"
+                        />
+                        <button
+                            onClick={() => {
+                                setContextSaving(true);
+                                setContextSaved(false);
+                                void updateUserProfile({
+                                    personalContext: personalContext || null,
+                                })
+                                    .then(() => setContextSaved(true))
+                                    .finally(() => setContextSaving(false));
+                            }}
+                            disabled={contextSaving}
+                            className="mt-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                        >
+                            {contextSaving ? "Saving…" : contextSaved ? "Saved" : "Save context"}
+                        </button>
+                    </div>
+                </AccountSection>
+            </section>
+
+            <section className="space-y-3">
+                <h2 className="text-2xl font-medium font-serif text-gray-900">
+                    Notifications
+                </h2>
+                <AccountSection>
+                    <div className="flex flex-col gap-3 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-1">
+                            <p className="text-sm font-medium text-gray-900">
+                                Email notifications
+                            </p>
+                            <p className="text-sm text-gray-500">
+                                Email me when agent runs and tabular reviews
+                                finish (requires the operator to configure an
+                                email provider).
+                            </p>
+                        </div>
+                        <AccountToggle
+                            checked={emailNotif ?? false}
+                            size="md"
+                            onChange={(checked) => {
+                                setEmailNotif(checked);
+                                void updateUserProfile({
+                                    emailNotifications: checked,
+                                });
+                            }}
+                        />
                     </div>
                 </AccountSection>
             </section>

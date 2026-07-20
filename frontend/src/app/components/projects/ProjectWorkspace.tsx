@@ -16,7 +16,6 @@ import {
     createTabularReview,
     deleteProject,
     getProject,
-    getProjectPeople,
     listProjectChats,
     listTabularReviews,
     updateProject,
@@ -32,7 +31,7 @@ import { TableToolbar } from "@/app/components/shared/TableToolbar";
 import { NewTRModal } from "@/app/components/tabular/NewTRModal";
 import { ConfirmPopup } from "@/app/components/popups/ConfirmPopup";
 import { OwnerOnlyPopup } from "@/app/components/popups/OwnerOnlyPopup";
-import { PeopleModal } from "@/app/components/modals/PeopleModal";
+import { ProjectMembersModal } from "@/app/components/modals/ProjectMembersModal";
 import { useChatHistoryContext } from "@/app/contexts/ChatHistoryContext";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { useUserProfile } from "@/app/contexts/UserProfileContext";
@@ -496,39 +495,17 @@ export function ProjectWorkspaceProvider({
                 />
 
                 {project && (
-                    <PeopleModal
+                    <ProjectMembersModal
                         open={peopleModalOpen}
                         onClose={() => setPeopleModalOpen(false)}
-                        resource={project}
-                        fetchPeople={getProjectPeople}
-                        currentUserEmail={user?.email ?? null}
-                        breadcrumb={[
-                            "Projects",
+                        projectId={projectId}
+                        projectName={
                             project.name +
-                                (project.cm_number
-                                    ? ` (${project.cm_number})`
-                                    : ""),
-                            "People",
-                        ]}
-                        onSharedWithChange={
-                            project.is_owner === false
-                                ? undefined
-                                : async (next) => {
-                                      const updated = await updateProject(
-                                          projectId,
-                                          { shared_with: next },
-                                      );
-                                      setProject((prev) =>
-                                          prev
-                                              ? {
-                                                    ...prev,
-                                                    shared_with:
-                                                        updated.shared_with,
-                                                }
-                                              : prev,
-                                      );
-                                  }
+                            (project.cm_number
+                                ? ` (${project.cm_number})`
+                                : "")
                         }
+                        currentUserEmail={user?.email ?? null}
                     />
                 )}
             </div>

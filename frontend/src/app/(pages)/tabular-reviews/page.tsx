@@ -17,6 +17,7 @@ import {
 import type { TabularReview, Project } from "@/app/components/shared/types";
 import { TableToolbar } from "@/app/components/shared/TableToolbar";
 import { NewTRModal } from "@/app/components/tabular/NewTRModal";
+import { TabularAskModal } from "@/app/components/tabular/TabularAskModal";
 import { TabularReviewDetailsModal } from "@/app/components/tabular/TabularReviewDetailsModal";
 import { OwnerOnlyPopup } from "@/app/components/popups/OwnerOnlyPopup";
 import { useAuth } from "@/app/contexts/AuthContext";
@@ -82,6 +83,7 @@ export default function TabularReviewsPage() {
     const [search, setSearch] = useState("");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [actionsOpen, setActionsOpen] = useState(false);
+    const [askOpen, setAskOpen] = useState(false);
     const [ownerOnlyAction, setOwnerOnlyAction] = useState<string | null>(null);
     const actionsRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
@@ -382,6 +384,11 @@ export default function TabularReviewsPage() {
                         placeholder: "Search reviews…",
                     },
                     {
+                        label: "Ask across documents",
+                        onClick: () => setAskOpen(true),
+                        title: "One question, every document (Tabular Analysis)",
+                    },
+                    {
                         type: "new",
                         onClick: () => setNewTROpen(true),
                         loading: creating,
@@ -631,6 +638,10 @@ export default function TabularReviewsPage() {
                 )}
             </TableScrollArea>
 
+            <TabularAskModal
+                open={askOpen}
+                onClose={() => setAskOpen(false)}
+            />
             <NewTRModal
                 open={newTROpen}
                 onClose={() => setNewTROpen(false)}

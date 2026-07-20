@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Copy, Eye, EyeOff, KeyRound, Trash2 } from "lucide-react";
 import { Input } from "@/app/components/ui/input";
 import { useUserProfile } from "@/app/contexts/UserProfileContext";
 import {
@@ -13,6 +13,12 @@ import {
     accountGlassIconButtonClassName,
     accountGlassInputClassName,
 } from "../accountStyles";
+import {
+    createPat,
+    listPats,
+    revokePat,
+    type Pat,
+} from "@/app/lib/mikeApi";
 import { AccountSection } from "../AccountSection";
 
 const MODEL_API_KEY_FIELDS = [
@@ -35,6 +41,13 @@ const MODEL_API_KEY_FIELDS = [
         provider: "openrouter",
         label: "OpenRouter API Key",
         placeholder: "sk-or-...",
+    },
+    {
+        provider: "moonshot",
+        label: "Moonshot (Kimi K3) API Key",
+        placeholder: "sk-...",
+        description:
+            "Only needed for Moonshot's hosted API (data processed offshore). Not required when the operator has configured a self-hosted Kimi K3 endpoint.",
     },
 ] as const;
 
@@ -66,6 +79,11 @@ export default function ApiKeysPage() {
                     <div key={field.provider}>
                         <ApiKeyField
                             label={field.label}
+                            description={
+                                "description" in field
+                                    ? field.description
+                                    : undefined
+                            }
                             placeholder={field.placeholder}
                             hasSavedKey={
                                 !!profile?.apiKeys[field.provider].configured
@@ -108,6 +126,148 @@ export default function ApiKeysPage() {
                         onRemove={() => updateApiKey(field.provider, null)}
                     />
                 ))}
+            </AccountSection>
+
+            <PatsSection />
+        </div>
+    );
+}
+
+/**
+ * C007 — personal access tokens for the Mike MCP server (/mcp-server).
+ * Tokens are shown once at creation; only hashes are stored.
+ */
+function PatsSection() {
+    const [tokens, setTokens] = useState<Pat[]>([]);
+    const [name, setName] = useState("");
+    const [creating, setCreating] = useState(false);
+    const [newToken, setNewToken] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
+
+    const refresh = useCallback(async () => {
+        try {
+            const { tokens } = await listPats();
+            setTokens(tokens.filter((t) => !t.revoked_at));
+        } catch {
+            /* transient */
+        }
+    }, []);
+
+    useEffect(() => {
+        void refresh();
+    }, [refresh]);
+
+    const create = async () => {
+        if (creating) return;
+        setCreating(true);
+        try {
+            const { token } = await createPat(name.trim() || "MCP token");
+            setNewToken(token);
+            setName("");
+            await refresh();
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    return (
+        <div className="mt-8">
+            <h3 className="mb-1 flex items-center gap-2 text-lg font-medium font-serif text-gray-900">
+                <KeyRound className="h-4 w-4" /> MCP access tokens
+            </h3>
+            <p className="mb-3 text-sm text-gray-500">
+                Personal access tokens let external agent hosts (Claude, Cowork,
+                Copilot Studio) call Mike&apos;s legal tools via the MCP
+                endpoint <code className="text-xs">/mcp-server</code>. Tokens
+                are shown once — copy them immediately.
+            </p>
+            <AccountSection>
+                <div className="px-4 py-4">
+                    {newToken && (
+                        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                            <p className="mb-1 text-xs font-medium text-amber-800">
+                                Copy this token now — it will not be shown
+                                again:
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1 text-xs">
+                                    {newToken}
+                                </code>
+                                <button
+                                    onClick={() => {
+                                        void navigator.clipboard.writeText(
+                                            newToken,
+                                        );
+                                        setCopied(true);
+                                        setTimeout(
+                                            () => setCopied(false),
+                                            1500,
+                                        );
+                                    }}
+                                    className="rounded border border-gray-300 p-1.5 text-gray-600 hover:bg-gray-50"
+                                    title="Copy token"
+                                >
+                                    <Copy className="h-3.5 w-3.5" />
+                                </button>
+                                {copied && (
+                                    <span className="text-xs text-green-600">
+                                        Copied
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    <ul className="mb-3 space-y-1.5">
+                        {tokens.map((t) => (
+                            <li
+                                key={t.id}
+                                className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            >
+                                <div>
+                                    <p className="text-gray-900">{t.name}</p>
+                                    <p className="text-[11px] text-gray-400">
+                                        Created{" "}
+                                        {new Date(
+                                            t.created_at,
+                                        ).toLocaleDateString()}
+                                        {t.last_used_at
+                                            ? ` · last used ${new Date(t.last_used_at).toLocaleDateString()}`
+                                            : " · never used"}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() =>
+                                        void revokePat(t.id).then(refresh)
+                                    }
+                                    className="text-gray-300 hover:text-red-600"
+                                    title="Revoke token"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                </button>
+                            </li>
+                        ))}
+                        {tokens.length === 0 && (
+                            <li className="text-sm text-gray-400">
+                                No active tokens.
+                            </li>
+                        )}
+                    </ul>
+                    <div className="flex items-center gap-2">
+                        <input
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Token name, e.g. 'Claude Cowork'"
+                            className="min-w-0 flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
+                        />
+                        <button
+                            onClick={() => void create()}
+                            disabled={creating}
+                            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                        >
+                            {creating ? "Creating…" : "Create token"}
+                        </button>
+                    </div>
+                </div>
             </AccountSection>
         </div>
     );

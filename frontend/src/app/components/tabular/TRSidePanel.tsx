@@ -55,6 +55,8 @@ interface Props {
     onClose: () => void;
     onNavigate: (documentId: string, columnIndex: number) => void;
     onRegenerate?: () => Promise<void>;
+    /** C032 — in-line manual editing of the cell's answer. */
+    onSaveEdit?: (summary: string) => Promise<void>;
     /** If true, open the document panel immediately */
     displayDocument?: boolean;
     /** Quote to highlight when opening document panel */
@@ -102,6 +104,7 @@ export function TRSidePanel({
     onClose,
     onNavigate,
     onRegenerate,
+    onSaveEdit,
     displayDocument = false,
     citationQuote,
     citationPage,
@@ -127,6 +130,9 @@ export function TRSidePanel({
             ? documents[currentDocumentPos + 1]
             : null;
     const [regenerating, setRegenerating] = useState(false);
+    // C032 — in-line cell editing state.
+    const [isEditingCell, setIsEditingCell] = useState(false);
+    const [editDraft, setEditDraft] = useState("");
     const [documentPaneOpen, setDocumentPaneOpen] = useState(displayDocument);
     const [documentPaneWidth, setDocumentPaneWidth] = useState(
         DEFAULT_DOCUMENT_PANE_WIDTH,
@@ -456,18 +462,71 @@ export function TRSidePanel({
 
                         {/* Results */}
                         <div className="mb-6">
-                            <h4 className="mb-2 text-xs font-medium text-gray-900">
-                                Results
-                            </h4>
-                            <div className="text-xs leading-relaxed text-slate-600">
-                                <MarkdownContent
-                                    citations={summaryCitations}
-                                    onCitationClick={handleCitationOpen}
-                                    column={column}
-                                >
-                                    {summaryText || "—"}
-                                </MarkdownContent>
+                            <div className="mb-2 flex items-center justify-between">
+                                <h4 className="text-xs font-medium text-gray-900">
+                                    Results
+                                    {(cell.content as { manual?: boolean } | null | undefined)?.manual && (
+                                        <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                                            edited
+                                        </span>
+                                    )}
+                                </h4>
+                                {onSaveEdit && !isEditingCell && (
+                                    <button
+                                        onClick={() => {
+                                            setEditDraft(
+                                                cell.content?.summary ?? "",
+                                            );
+                                            setIsEditingCell(true);
+                                        }}
+                                        className="text-[11px] text-gray-400 hover:text-gray-700"
+                                    >
+                                        Edit
+                                    </button>
+                                )}
                             </div>
+                            {isEditingCell ? (
+                                <div>
+                                    <textarea
+                                        value={editDraft}
+                                        onChange={(e) =>
+                                            setEditDraft(e.target.value)
+                                        }
+                                        rows={6}
+                                        autoFocus
+                                        className="w-full resize-y rounded-md border border-gray-300 p-2 text-xs outline-none focus:border-gray-500"
+                                    />
+                                    <div className="mt-1.5 flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setIsEditingCell(false);
+                                                void onSaveEdit?.(editDraft);
+                                            }}
+                                            className="rounded bg-gray-900 px-2.5 py-1 text-[11px] font-medium text-white"
+                                        >
+                                            Save
+                                        </button>
+                                        <button
+                                            onClick={() =>
+                                                setIsEditingCell(false)
+                                            }
+                                            className="rounded border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-xs leading-relaxed text-slate-600">
+                                    <MarkdownContent
+                                        citations={summaryCitations}
+                                        onCitationClick={handleCitationOpen}
+                                        column={column}
+                                    >
+                                        {summaryText || "—"}
+                                    </MarkdownContent>
+                                </div>
+                            )}
                         </div>
 
                         {/* Reasoning */}

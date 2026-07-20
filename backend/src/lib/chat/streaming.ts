@@ -16,8 +16,15 @@ import {
   type CourtlistenerToolEvent,
 } from "./tools/courtlistenerTools";
 import { JADE_TOOLS } from "./tools/jadeTools";
-import { VERIFICATION_TOOLS } from "./tools/verificationTools";
-import { KNOWLEDGE_TOOLS, PLAYBOOK_TOOLS } from "./tools/kbTools";
+import { VERIFICATION_TOOLS, ASSERTION_VERIFY_TOOLS } from "./tools/verificationTools";
+import {
+  KNOWLEDGE_TOOLS,
+  PLAYBOOK_TOOLS,
+  PLAYBOOK_BUILDER_TOOLS,
+  CLAUSE_TOOLS,
+  TABULAR_ASK_TOOLS,
+} from "./tools/kbTools";
+import { getOrgContextForUser } from "../orgContext";
 import { isKnowledgeBaseConfigured } from "../knowledgeBase";
 import { calculateCostAud } from "../pricing";
 import {
@@ -172,6 +179,12 @@ export async function runLLMStream(params: {
    * generated docs still get persisted, but as standalone documents.
    */
   projectId?: string | null;
+  /**
+   * P1 agent runtime (C013): restrict the toolset for specialist agent
+   * roles. When set, only tools whose name is in the list are offered to
+   * the model (MCP tools are excluded from allowlisted runs entirely).
+   */
+  toolAllowlist?: string[] | null;
 }): Promise<{
   fullText: string;
   events: AssistantEvent[];
@@ -197,7 +210,7 @@ export async function runLLMStream(params: {
     costSource = "chat",
   } = params;
   const researchTools = includeResearchTools
-    ? [...JADE_TOOLS, ...VERIFICATION_TOOLS]
+    ? [...JADE_TOOLS, ...VERIFICATION_TOOLS, ...ASSERTION_VERIFY_TOOLS]
     : [];
   const mcpTools = await buildUserMcpTools(userId, db);
   const kbTools = isKnowledgeBaseConfigured() ? KNOWLEDGE_TOOLS : [];
@@ -207,16 +220,38 @@ export async function runLLMStream(params: {
     ...WORKFLOW_TOOLS,
     ...kbTools,
     ...PLAYBOOK_TOOLS,
+    ...PLAYBOOK_BUILDER_TOOLS,
+    ...CLAUSE_TOOLS,
+    ...TABULAR_ASK_TOOLS,
   ];
-  const activeTools = extraTools?.length
+  let activeTools = extraTools?.length
     ? [...baseTools, ...mcpTools, ...extraTools]
     : [...baseTools, ...mcpTools];
+  if (params.toolAllowlist) {
+    const allowed = new Set(params.toolAllowlist);
+    activeTools = [...baseTools, ...(extraTools ?? [])].filter((t) => {
+      const name = (t as { function?: { name?: string } })?.function?.name;
+      return !!name && allowed.has(name);
+    });
+  }
 
   // Extract system prompt; pass remaining turns to the adapter as
   // plain user/assistant messages.
   const rawMsgs = apiMessages as { role: string; content: string | null }[];
-  const systemPrompt =
+  let systemPrompt =
     rawMsgs[0]?.role === "system" ? (rawMsgs[0].content ?? "") : "";
+  // C033 — organisation/user context, injected once per stream (skipped when
+  // the caller composed it already, e.g. agent role prompts).
+  if (!systemPrompt.includes("ORGANISATION / USER CONTEXT")) {
+    try {
+      const orgContext = await getOrgContextForUser(userId, db);
+      if (orgContext) {
+        systemPrompt += `\n\nORGANISATION / USER CONTEXT (apply where relevant to drafting, review and redlines):\n${orgContext}`;
+      }
+    } catch {
+      /* context injection must never break a stream */
+    }
+  }
   const chatMessages: LlmMessage[] = rawMsgs
     .filter((m) => m.role !== "system")
     .map((m) => ({

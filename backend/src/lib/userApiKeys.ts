@@ -8,7 +8,8 @@ export type ApiKeyProvider =
     | "gemini"
     | "openai"
     | "openrouter"
-    | "courtlistener";
+    | "courtlistener"
+    | "moonshot";
 export type ApiKeySource = "user" | "env" | null;
 export type ApiKeyStatus = Record<ApiKeyProvider, boolean> & {
     sources: Record<ApiKeyProvider, ApiKeySource>;
@@ -27,6 +28,7 @@ const PROVIDERS: ApiKeyProvider[] = [
     "openai",
     "openrouter",
     "courtlistener",
+    "moonshot",
 ];
 
 function envApiKey(provider: ApiKeyProvider): string | null {
@@ -45,6 +47,13 @@ function envApiKey(provider: ApiKeyProvider): string | null {
             return process.env.OPENROUTER_API_KEY?.trim() || null;
         case "courtlistener":
             return process.env.COURTLISTENER_API_TOKEN?.trim() || null;
+        case "moonshot":
+            // A self-hosted Kimi endpoint needs no key — report configured.
+            return (
+                process.env.MOONSHOT_API_KEY?.trim() ||
+                process.env.KIMI_BASE_URL?.trim() ||
+                null
+            );
         default:
             return null;
     }
@@ -116,12 +125,14 @@ export async function getUserApiKeyStatus(
         openai: false,
         openrouter: false,
         courtlistener: false,
+        moonshot: false,
         sources: {
             claude: null,
             gemini: null,
             openai: null,
             openrouter: null,
             courtlistener: null,
+            moonshot: null,
         },
     };
 
@@ -159,6 +170,10 @@ export async function getUserApiKeys(
         openai: envApiKey("openai"),
         openrouter: envApiKey("openrouter"),
         courtlistener: envApiKey("courtlistener"),
+        // Actual key only — envApiKey("moonshot") may return KIMI_BASE_URL
+        // as a "configured" marker for status display, which must never be
+        // used as a bearer token.
+        moonshot: process.env.MOONSHOT_API_KEY?.trim() || null,
     };
 
     const { data, error } = await db
