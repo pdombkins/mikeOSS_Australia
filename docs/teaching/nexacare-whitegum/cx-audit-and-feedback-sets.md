@@ -1,10 +1,10 @@
-# Week 7 — CX audit inputs & Client feedback sets
+# Week 8 — CX audit inputs & Client feedback sets
 
-Companion to `seeded-failures-service-recovery.md`, covering steps 1 (Baseline) and 3 (Listening) of the Week-7 flow.
+Companion to `seeded-failures-service-recovery.md`, covering steps 1 (Baseline) and 3 (Listening) of the Week-8 flow.
 
 ---
 
-## 1. *Client experience (CX) audit & scorecard (W7)* — what to upload
+## 1. *Client experience (CX) audit & scorecard (W8)* — what to upload
 
 **Nothing is required.** The research step is written to draw on three sources that are already in the workspace: the **matter list** (seeded Lists), the **client personas** (Keller and Wu, in the org/project context and the persona-tuned comms clauses), and the **CX/EX standards playbook** (review step).
 
@@ -19,7 +19,7 @@ Documents already in the Library (lease extracts, MSA, notice letter, TSA) are m
 
 ---
 
-## 2. *Client feedback synthesis — data-driven CX (W7)* — six mock comment sets
+## 2. *Client feedback synthesis — data-driven CX (W8)* — six mock comment sets
 
 The workflow says *"Paste or attach the feedback in your request"* — pasting works; no upload needed. Give each group a different set so the synthesis outputs differ and the class can compare themes. Each set is 8 comments in the voices of the NexaCare stakeholders: **Dr Alexandra Keller (CEO)**, **Jonathan Wu (GC)**, **Daniel Okoye (CIO)**, **Elena Rossi (Head of HR)**, plus occasional board/EA voices. Instructor answer keys follow each set.
 
@@ -45,7 +45,7 @@ The workflow says *"Paste or attach the feedback in your request"* — pasting w
 > 7. Board chair: "Compare their fees to the deal value and it's fine. Compare to what we budgeted and it isn't."
 > 8. Wu (GC): "Their AI-usage reporting is more transparent than their fee reporting. Make of that what you will."
 >
-*Key: value/fees dominant (negative), but the real theme is predictability not price — comments 1, 2, 6, 7 are estimate-communication failures. Ties to the Usage/budget features (Week 5); comment 8 is the discussion grenade.*
+*Key: value/fees dominant (negative), but the real theme is predictability not price — comments 1, 2, 6, 7 are estimate-communication failures. Ties to the Usage/budget features (Week 7); comment 8 is the discussion grenade.*
 
 ### Set C — One firm, two clients
 > 1. Keller (CEO): "Give me the answer first. I keep getting the reasoning first and the answer on page two."
@@ -93,10 +93,10 @@ The workflow says *"Paste or attach the feedback in your request"* — pasting w
 > 7. Wu (GC): "A closing binder arrived. A lessons-learned conversation never did."
 > 8. Rossi (HR): "They were at their best in the crisis and their most absent in the quiet weeks."
 >
-*Key: outcome uniformly positive, experience negative — the sharpest outcome-vs-experience split. Actions should be journey-stage fixes (single point of contact, next-steps framing, post-matter debrief), which sets up* Moments that matter — CX/EX map *and the Week-9 debrief norm.*
+*Key: outcome uniformly positive, experience negative — the sharpest outcome-vs-experience split. Actions should be journey-stage fixes (single point of contact, next-steps framing, post-matter debrief), which sets up* Moments that matter — CX/EX map *and the Week-10 debrief norm.*
 
 ---
 
-**Run instruction for students:** select the NexaCare project, open *Client feedback synthesis — data-driven CX (W7)*, paste your assigned set verbatim (keep the names and ratings), and run. Compare your themes table with a neighbouring group before the class debrief.
+**Run instruction for students:** select the NexaCare project, open *Client feedback synthesis — data-driven CX (W8)*, paste your assigned set verbatim (keep the names and ratings), and run. Compare your themes table with a neighbouring group before the class debrief.
 
 **Comparison debrief (10 min):** each set is engineered with a different dominant lesson — responsiveness (A), fee predictability (B), conflicting personas (C), the buried critical incident (D), NPS mechanics + double-counting (E), outcome ≠ experience (F). Ask each group for their single top action, then reveal that all six describe the *same matter* — the class has just experienced sampling bias in feedback programs.

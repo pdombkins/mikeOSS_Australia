@@ -1,4 +1,4 @@
-# LAWS8198 — Teaching Guide for Mike (Australia): the NexaCare / Whitegum case study
+# LAWS3850 — Teaching Guide for Mike (Australia): the NexaCare / Whitegum case study
 
 *Master instructor guide. Research and educational use only; nothing Mike produces is legal advice, and every citation must be human-verified before it is relied on. Companion documents: `content-suggestions-by-week.md` (rationale), `teaching-guide.md` (answer-key design notes), `prompt-library.md` (student-facing prompts), and the `seed/` folder (re-runnable SQL + CSVs).*
 
@@ -11,7 +11,7 @@ Kendry & Slate (a fictional Australian M&A firm) acts for NexaCare Health on its
 The tool is deliberately used two ways at once:
 
 1. **As the means** — students run scoping, diligence, drafting, review and verification tasks to *do* the LPM activity for each week.
-2. **As the object of study** — Mike's own controls (approval gates, role-scoped tools, citation-verification, audit log, cost tracking) are specimens for the Week-4 and Week-7 discussions on GenAI in legal practice.
+2. **As the object of study** — Mike's own controls (approval gates, role-scoped tools, citation-verification, audit log, cost tracking) are specimens for the Week-4 and Week-8 discussions on GenAI in legal practice.
 
 ## 2. What is installed (all instructor-owned, shared to the class project as *editor*)
 
@@ -71,26 +71,26 @@ Emphasise throughout: the point is the student's **judgment over the output**, n
 - **Objective:** students can state the NSW rules, and can point to the specific tool controls that satisfy (or fail) them.
 - **Debate:** *should generative AI be allowed in delivering legal services?* — now grounded in a tool they have used and its actual guardrails.
 
-### Week 5 — Demand management, right-sourcing & risk
+### Week 7 — Demand management, right-sourcing & risk
 - **LPM focus:** disaggregation, ALSPs, commoditisation, risk & quality management.
-- **Run in Mike:** *Right-sourcing analysis (W5)* → produces the disaggregation register; reviewed automatically against the *Right-sourcing risk & quality gates* playbook. Pair with a *TSA review* tabular run.
+- **Run in Mike:** *Right-sourcing analysis (W7)* → produces the disaggregation register; reviewed automatically against the *Right-sourcing risk & quality gates* playbook. Pair with a *TSA review* tabular run.
 - **Objective:** students can decide keep/delegate/commoditise/outsource/automate for each task and defend it on risk, complexity and cost.
 - **Facilitate:** which tasks are safe to outsource, and which fail a quality gate? Connect to the billable-hour debate.
 
-### Week 7 — Professional ethics; CX & EX
-See the CX/EX deep dive in §5. For **ethics**, run *LPM ethics check (W7)* on a proposed action (for example "compress diligence two weeks and lean on AI review"); it reviews against the governance playbook and surfaces where commercial pressure conflicts with obligation. Tie to Rogers & Dombkins and Legg.
+### Week 8 — Professional ethics; CX & EX
+See the CX/EX deep dive in §5. For **ethics**, run *LPM ethics check (W8)* on a proposed action (for example "compress diligence two weeks and lean on AI review"); it reviews against the governance playbook and surfaces where commercial pressure conflicts with obligation. Tie to Rogers & Dombkins and Legg.
 
-### Week 8 — Transformation & change management
+### Week 9 — Transformation & change management
 - **LPM focus:** change management, Kotter, innovation.
-- **Run in Mike:** *Change plan — Kotter 8-step (W8)* for rolling out the client happy path or adopting Mike/LPM firm-wide; includes a resistance map keyed to the K&S partners. Stage ideas with the *Innovation one-pager* clause.
+- **Run in Mike:** *Change plan — Kotter 8-step (W9)* for rolling out the client happy path or adopting Mike/LPM firm-wide; includes a resistance map keyed to the K&S partners. Stage ideas with the *Innovation one-pager* clause.
 - **Objective:** students can build an eight-step change plan and anticipate resistance from named stakeholders.
 
-### Week 9 — Group assessment
+### Week 10 — Group assessment
 - **Run in Mike:** *Group-assessment deliverable builder* assembles a group's analysis into a presentation-ready, export-ready pack (DOCX/PDF).
 
 ---
 
-## 5. Week-7 deep dive — Client Experience (CX) & Employee Experience (EX)
+## 5. Week-8 deep dive — Client Experience (CX) & Employee Experience (EX)
 
 Six workflows plus a *Client & employee experience standards* playbook and two template clauses (*Service recovery note*, *Team pulse check*) support this week. A suggested 60-minute flow:
 
@@ -98,11 +98,11 @@ Six workflows plus a *Client & employee experience standards* playbook and two t
 2. **Recovery (CX).** Run *Service recovery response* on a seeded failure (e.g. "we missed the lease-consent deadline for the Parramatta premises"). **Teaching point built into the workflow:** the review step flags where a service apology risks becoming a legal admission needing partner/PI sign-off — the CX/ethics tension made concrete.
 3. **Listening (CX).** Run *Client feedback synthesis* on a short set of mock client comments (provide 6–8 lines) to model the data-driven CX reading from the HBR article — themes, sentiment, actions.
 4. **The team side (EX).** Run *Team experience (EX) & psychological-safety pulse* — uses the personas' wellbeing cues (Lily's over-commitment, Aisha's anxiety under pressure, David's rigidity, Tom's detail-miss risk). Then *Workload & wellbeing rebalance* to protect a sustainable pace while still meeting the deadline. Keep the framing supportive and non-clinical; the workflows are built to stay within a manager's remit.
-5. **Synthesis.** Run *Moments that matter — CX/EX map* to surface where client and employee experience reinforce or **conflict** (compressing the timetable pleases the client but strains the team) — the core Week-7 tension.
+5. **Synthesis.** Run *Moments that matter — CX/EX map* to surface where client and employee experience reinforce or **conflict** (compressing the timetable pleases the client but strains the team) — the core Week-8 tension.
 
 **Facilitation prompts:** Can a strong culture prevent ethical breaches (Green)? Where did serving the client cost the team, and how would you redesign that moment? Which of Mike's own features support EX (the approval gate distributes accountability; the audit log protects the junior who flagged a risk)?
 
-**Assessment artefact:** a one-page "ideal happy path" (Week-7 activity) plus a short EX note on how the accelerated timetable was staffed — both producible with these workflows.
+**Assessment artefact:** a one-page "ideal happy path" (Week-8 activity) plus a short EX note on how the accelerated timetable was staffed — both producible with these workflows.
 
 **Care note for facilitators:** the EX workflows deliberately avoid clinical or diagnostic language and focus on practical, humane management actions. If real student wellbeing comes up in discussion, direct to UNSW support services rather than treating it as a case-study exercise.
 

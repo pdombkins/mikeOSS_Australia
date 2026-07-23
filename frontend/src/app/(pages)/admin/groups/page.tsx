@@ -178,7 +178,7 @@ export default function AdminGroupsPage() {
                             onKeyDown={(e) =>
                                 e.key === "Enter" && void handleCreate()
                             }
-                            placeholder="New group name — e.g. LAWS8198 2026 T2"
+                            placeholder="New group name — e.g. LAWS3850 2026 T2"
                             className="min-w-0 flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
                         />
                         <button

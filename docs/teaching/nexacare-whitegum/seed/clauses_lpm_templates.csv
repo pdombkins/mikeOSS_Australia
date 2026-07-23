@@ -21,13 +21,13 @@ Hypothesis: we believe [change] will produce [outcome] for [who].
 Smallest pilot: [the cheapest test that would prove or disprove the hypothesis].
 Success measure: [what result would justify scaling].
 Scale / kill decision: [when we decide, and on what evidence].
-Owner: [name].",template,"Lightweight canvas for staging an innovation or change experiment (Week 8). Forces a testable hypothesis and an explicit kill/scale gate before investment.",change;innovation;experiment;transformation
+Owner: [name].",template,"Lightweight canvas for staging an innovation or change experiment (Week 9). Forces a testable hypothesis and an explicit kill/scale gate before investment.",change;innovation;experiment;transformation
 Continuous-improvement retro,"BLAMELESS RETRO — [matter / phase] — [date]
 What went well: [keep doing].
 What did not go well: [facts, not blame].
 Root causes: [why — go past the first answer].
 What we will change: [specific, owned actions].
-One experiment for next time: [a single change to test].",template,"Blameless post-mortem template for the matter debrief milestone (Week 3 continuous improvement, Week 7 EX). Focus on process and system causes, not individuals.",process;retro;continuous improvement;debrief
+One experiment for next time: [a single change to test].",template,"Blameless post-mortem template for the matter debrief milestone (Week 3 continuous improvement, Week 8 EX). Focus on process and system causes, not individuals.",process;retro;continuous improvement;debrief
 Stakeholder communication styles — K&S / NexaCare,"COMMUNICATION STYLE GUIDE (case study)
 Dr Alexandra Keller (CEO): commercial, decisive, outcome-first. Lead with the bottom line and the decision needed; keep it short.
 Jonathan Wu (GC): disciplined, risk-weighted, ""no surprises"". Use headings; state the risk position, options and recommendation.
@@ -41,4 +41,4 @@ Progress this period: [key movements].
 Conditions precedent: [tracker summary — satisfied / outstanding / at risk].
 Upcoming deadlines: [next 5 business days].
 Risks & decisions needed: [issue, owner, decision].
-Budget: AI spend and effort vs the fixed-fee milestones — [on track / watch].",template,"Weekly status-report structure for the matter (cross-cutting; Week 5 metrics, Week 4 measurement). Use with the operations status-report skill or as a drafting prompt.",status report;reporting;governance;metrics
+Budget: AI spend and effort vs the fixed-fee milestones — [on track / watch].",template,"Weekly status-report structure for the matter (cross-cutting; Week 7 metrics, Week 4 measurement). Use with the operations status-report skill or as a drafting prompt.",status report;reporting;governance;metrics

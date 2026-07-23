@@ -1,6 +1,6 @@
-# Week 7 — Seeded failures for *Service recovery response (W7)*
+# Week 8 — Seeded failures for *Service recovery response (W8)*
 
-Six paste-ready failures for the Recovery (CX) step of the Week-7 flow. The workflow takes the failure as free text — students select the **NexaCare — Whitegum Acquisition** project (so org context, the CX/EX standards playbook and the *Service recovery note — structure* clause are in scope), open **Service recovery response (W7)**, and paste one scenario.
+Six paste-ready failures for the Recovery (CX) step of the Week-8 flow. The workflow takes the failure as free text — students select the **NexaCare — Whitegum Acquisition** project (so org context, the CX/EX standards playbook and the *Service recovery note — structure* clause are in scope), open **Service recovery response (W8)**, and paste one scenario.
 
 Ordered easy → hard. Each has a distinct trap; the recurring teaching point is where a **service apology becomes a legal admission** needing partner (and possibly PI insurer) sign-off — the review step should flag it, and the class should check whether it did.
 
@@ -55,6 +55,6 @@ Optional, if you want richer runs:
 2. **Playbook check:** *"Review the recovery note against the Client & employee experience standards playbook and list any deviations."*
 3. **The red line:** *"Identify every sentence in the recovery note that a PI insurer might read as an admission of liability, and propose a service-apology alternative for each."* — makes the review step's flag concrete.
 4. **Clause retrieval:** *"Find our service recovery note template in the clause library and restructure the response to match it."* (exercises `search_clauses`.)
-5. **EX bridge (into step 4 of the Week-7 flow):** *"Whose mistake was this, and what does a just-culture response to that team member look like alongside the client apology?"* — connects Recovery (CX) to the psychological-safety pulse, and to the facilitation prompt about the audit log protecting the junior who flagged the risk.
+5. **EX bridge (into step 4 of the Week-8 flow):** *"Whose mistake was this, and what does a just-culture response to that team member look like alongside the client apology?"* — connects Recovery (CX) to the psychological-safety pulse, and to the facilitation prompt about the audit log protecting the junior who flagged the risk.
 
 **Timing note:** the live calendar has crisis Monday = 20 Jul 2026 and the MediTrax deadline Mon 27 Jul 2026; the scenarios above are date-light so they survive the next date re-anchor.
