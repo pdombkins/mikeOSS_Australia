@@ -27,6 +27,12 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+    const [forgotPasswordSent, setForgotPasswordSent] = useState(false);
+    const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+    const [forgotPasswordError, setForgotPasswordError] = useState<
+        string | null
+    >(null);
 
     useEffect(() => {
         if (!authLoading && isAuthenticated) {
@@ -56,6 +62,31 @@ export default function LoginPage() {
             );
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleForgotPassword = async () => {
+        if (!email.trim()) {
+            setForgotPasswordError("Enter your email above first.");
+            return;
+        }
+        setForgotPasswordLoading(true);
+        setForgotPasswordError(null);
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(
+                email.trim(),
+                { redirectTo: `${window.location.origin}/reset-password` },
+            );
+            if (error) throw error;
+            setForgotPasswordSent(true);
+        } catch (error: unknown) {
+            setForgotPasswordError(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to send reset email.",
+            );
+        } finally {
+            setForgotPasswordLoading(false);
         }
     };
 
@@ -103,12 +134,27 @@ export default function LoginPage() {
                         </div>
 
                         <div>
-                            <label
-                                htmlFor="password"
-                                className="block text-sm font-medium text-gray-700 mb-2"
-                            >
-                                Password
-                            </label>
+                            <div className="flex items-center justify-between mb-2">
+                                <label
+                                    htmlFor="password"
+                                    className="block text-sm font-medium text-gray-700"
+                                >
+                                    Password
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setForgotPasswordOpen(
+                                            (open) => !open,
+                                        );
+                                        setForgotPasswordSent(false);
+                                        setForgotPasswordError(null);
+                                    }}
+                                    className="text-xs font-medium text-gray-500 hover:text-gray-900"
+                                >
+                                    Forgot password?
+                                </button>
+                            </div>
                             <Input
                                 id="password"
                                 type="password"
@@ -119,6 +165,43 @@ export default function LoginPage() {
                                 className={`w-full ${authInputClassName}`}
                             />
                         </div>
+
+                        {forgotPasswordOpen && (
+                            <div className="rounded-lg bg-gray-100 p-3 space-y-2">
+                                {forgotPasswordSent ? (
+                                    <p className="text-sm text-gray-600">
+                                        If an account exists for {email},
+                                        we&apos;ve sent a password reset
+                                        link to it.
+                                    </p>
+                                ) : (
+                                    <>
+                                        <p className="text-xs text-gray-500">
+                                            Enter your email above, then send
+                                            yourself a reset link.
+                                        </p>
+                                        {forgotPasswordError && (
+                                            <p className="text-xs text-red-600">
+                                                {forgotPasswordError}
+                                            </p>
+                                        )}
+                                        <Button
+                                            type="button"
+                                            onClick={() =>
+                                                void handleForgotPassword()
+                                            }
+                                            disabled={forgotPasswordLoading}
+                                            variant="outline"
+                                            className="w-full h-8 text-xs"
+                                        >
+                                            {forgotPasswordLoading
+                                                ? "Sending..."
+                                                : "Send reset link"}
+                                        </Button>
+                                    </>
+                                )}
+                            </div>
+                        )}
 
                         {error && (
                             <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
