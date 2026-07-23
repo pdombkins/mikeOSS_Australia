@@ -9,7 +9,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "mike-australia",
   "main": ".open-next/worker.js",
-  "compatibility_date": "2025-03-01",
+  "compatibility_date": "2025-06-01",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "binding": "ASSETS",
