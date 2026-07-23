@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { supabase } from "@/app/lib/supabase";
 import { PillButton } from "@/app/components/ui/pill-button";
-import { PdfView } from "../shared/views/PdfView";
-import { DocxView } from "../shared/views/DocxView";
-import { SpreadsheetView } from "../shared/views/SpreadsheetView";
+import { PdfView, DocxView, SpreadsheetView } from "../shared/views/LazyViews";
 import {
     CitationQuotesHeader,
     type CitationQuoteHeaderItem,

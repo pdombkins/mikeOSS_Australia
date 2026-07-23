@@ -15,9 +15,11 @@ import {
 } from "lucide-react";
 import { ConfirmPopup } from "@/app/components/popups/ConfirmPopup";
 import { FileTypeIcon } from "@/app/components/shared/FileTypeIcon";
-import { PdfView } from "@/app/components/shared/views/PdfView";
-import { DocxView } from "@/app/components/shared/views/DocxView";
-import { SpreadsheetView } from "@/app/components/shared/views/SpreadsheetView";
+import {
+    PdfView,
+    DocxView,
+    SpreadsheetView,
+} from "@/app/components/shared/views/LazyViews";
 import { PillButton } from "@/app/components/ui/pill-button";
 import { WarningPopup } from "@/app/components/popups/WarningPopup";
 import type { Document } from "@/app/components/shared/types";

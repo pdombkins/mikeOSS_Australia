@@ -1,6 +1,5 @@
 "use client";
 
-import ExcelJS from "exceljs";
 import type {
     ColumnConfig,
     Document,
@@ -40,11 +39,17 @@ export async function exportTabularReviewToExcel(params: {
 }) {
     const { reviewTitle, columns, documents, cells } = params;
 
+    // Lazy-loaded: exceljs is a large library and this export path is only
+    // ever hit from a client-side button click, never during the initial
+    // render — dynamic-importing it here keeps it out of the SSR bundle
+    // (see LazyViews.tsx for the same pattern applied to doc viewers).
+    const { default: ExcelJSMod } = await import("exceljs");
+
     const sortedCols = [...columns].sort((a, b) => a.index - b.index);
     const cellMap = new Map<string, TabularCell>();
     for (const c of cells) cellMap.set(`${c.document_id}:${c.column_index}`, c);
 
-    const wb = new ExcelJS.Workbook();
+    const wb = new ExcelJSMod.Workbook();
     const ws = wb.addWorksheet("Review");
 
     ws.columns = [
