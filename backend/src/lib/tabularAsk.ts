@@ -11,6 +11,7 @@ import { attachActiveVersionPaths } from "./documentVersions";
 import { extractDocumentMarkdown } from "./extractText";
 import { filterAccessibleDocumentIds } from "./access";
 import { completeText, type UserApiKeys } from "./llm";
+import { calculateCostAud } from "./pricing";
 import { getUserModelSettings } from "./userSettings";
 
 type Db = ReturnType<typeof createServerSupabase>;
@@ -105,6 +106,34 @@ export async function runTabularAsk(args: {
             apiKeys,
           })
         ).trim();
+        // C077/C078 — record estimated spend (completeText exposes no
+        // usage; chars/4, same convention as kb_embedding + tabular).
+        const promptChars =
+          question.length + Math.min(text.length, 100_000);
+        const answerChars = answer.length;
+        void (async () => {
+          try {
+            const cost = await calculateCostAud(
+              tabular_model,
+              Math.ceil(promptChars / 4),
+              Math.ceil(answerChars / 4),
+            );
+            await db.from("query_costs").insert({
+              user_id: userId,
+              chat_id: null,
+              project_id: null,
+              model: cost.model,
+              input_tokens: cost.inputTokens,
+              output_tokens: cost.outputTokens,
+              cost_usd: cost.costUsd,
+              cost_aud: cost.costAud,
+              aud_rate: cost.audRate,
+              source: "tabular_ask",
+            });
+          } catch (err) {
+            console.error("[tabularAsk] failed to record spend:", err);
+          }
+        })();
       }
     } catch (err) {
       answer = `Extraction failed: ${err instanceof Error ? err.message : "unknown error"}`;

@@ -26,6 +26,15 @@ import {
 import { verifyCitation } from "../../verification";
 import { recordAudit, argsDigest } from "../../audit";
 import { saveClause, searchClauses, formatClausesForModel } from "../../clauses";
+import {
+  LIST_ITEM_KINDS,
+  LIST_ITEM_STATUSES,
+  LIST_ITEM_COLUMNS,
+  createListItem,
+  listItemsForProject,
+  type ListItemKind,
+  type ListItemStatus,
+} from "../../lists";
 import { runTabularAsk } from "../../tabularAsk";
 import { runAssertionVerification } from "../../verification/assertionCheck";
 import {
@@ -785,6 +794,96 @@ export async function runToolCalls(
         content = `Saved to My Clauses: "${clause.title}" (id ${clause.id}).`;
       } catch (err) {
         content = `Could not save clause — ${(err as Error).message}`;
+      }
+      toolResults.push({ role: "tool", tool_call_id: tc.id, content });
+      continue;
+    }
+
+    // C076 — Lists tools (tasks, facts & deadlines). Project-scoped: the
+    // dispatcher only receives these calls from project chats / agent runs,
+    // where access was already authorised upstream; we still refuse without
+    // a project in context.
+    if (
+      tc.function.name === "list_list_items" ||
+      tc.function.name === "add_list_item" ||
+      tc.function.name === "update_list_item_status"
+    ) {
+      let content: string;
+      if (!projectId) {
+        content =
+          "LISTS: no matter (project) is in context — list items live on a project. Ask the user to open the matter, or skip this step.";
+      } else if (tc.function.name === "list_list_items") {
+        try {
+          const kindFilter =
+            typeof args.kind === "string" &&
+            LIST_ITEM_KINDS.has(args.kind as ListItemKind)
+              ? (args.kind as ListItemKind)
+              : null;
+          const items = (await listItemsForProject(db, projectId)).filter(
+            (i) => !kindFilter || i.kind === kindFilter,
+          );
+          content =
+            items.length === 0
+              ? "No list items on this matter yet."
+              : items
+                  .map(
+                    (i) =>
+                      `- [${i.kind}] (${i.status}) ${i.title}${i.due_at ? ` — due ${i.due_at.slice(0, 10)}` : ""}${i.citation ? ` — ${i.citation}` : ""} (id ${i.id})`,
+                  )
+                  .join("\n");
+        } catch (err) {
+          content = `LISTS: failed — ${(err as Error).message}`;
+        }
+      } else if (tc.function.name === "add_list_item") {
+        try {
+          const kind = args.kind as ListItemKind;
+          const title =
+            typeof args.title === "string" ? args.title.trim() : "";
+          if (!LIST_ITEM_KINDS.has(kind) || !title)
+            throw new Error("kind (task|fact|deadline) and title are required");
+          let dueAt: string | null = null;
+          if (typeof args.due_at === "string" && args.due_at) {
+            const d = new Date(args.due_at);
+            if (Number.isNaN(d.getTime()))
+              throw new Error("due_at is not a valid ISO date");
+            dueAt = d.toISOString();
+          }
+          const item = await createListItem(db, {
+            projectId,
+            createdBy: userId,
+            kind,
+            title,
+            detail: typeof args.detail === "string" ? args.detail : null,
+            dueAt,
+            citation:
+              typeof args.citation === "string" ? args.citation : null,
+          });
+          content = `Added ${kind} "${item.title}" to the matter list (id ${item.id}${dueAt ? `, due ${dueAt.slice(0, 10)}` : ""}).`;
+        } catch (err) {
+          content = `LISTS: could not add item — ${(err as Error).message}`;
+        }
+      } else {
+        try {
+          const itemId =
+            typeof args.item_id === "string" ? args.item_id : "";
+          const status = args.status as ListItemStatus;
+          if (!itemId || !LIST_ITEM_STATUSES.has(status))
+            throw new Error(
+              "item_id and status (open|in_progress|done|dismissed) are required",
+            );
+          const { data: updated, error } = await db
+            .from("list_items")
+            .update({ status, updated_at: new Date().toISOString() })
+            .eq("id", itemId)
+            .eq("project_id", projectId)
+            .select(LIST_ITEM_COLUMNS)
+            .maybeSingle();
+          if (error) throw new Error(error.message);
+          if (!updated) throw new Error("item not found on this matter");
+          content = `Marked "${(updated as { title: string }).title}" as ${status}.`;
+        } catch (err) {
+          content = `LISTS: could not update — ${(err as Error).message}`;
+        }
       }
       toolResults.push({ role: "tool", tool_call_id: tc.id, content });
       continue;

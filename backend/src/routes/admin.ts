@@ -15,6 +15,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
+import { frontendBaseUrl } from "../lib/urls";
 import {
   APP_SETTING_KEYS,
   getAppSetting,
@@ -127,7 +128,7 @@ adminRouter.post("/invite", async (req, res) => {
 
   // Send invitation email via Supabase Auth admin API
   const { error: inviteError } = await db.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${process.env.FRONTEND_URL ?? "http://localhost:3000"}/login`,
+    redirectTo: `${frontendBaseUrl()}/login`,
   });
 
   if (inviteError) {
@@ -434,7 +435,7 @@ adminRouter.get("/analytics", async (req, res) => {
     await Promise.all([
       db
         .from("query_costs")
-        .select("user_id, model, source, input_tokens, output_tokens, cost_aud, created_at")
+        .select("user_id, project_id, model, source, input_tokens, output_tokens, cost_aud, created_at")
         .gte("created_at", since)
         .limit(20000),
       db
@@ -470,6 +471,9 @@ adminRouter.get("/analytics", async (req, res) => {
   const costByDay = new Map<string, number>();
   const costByModel = new Map<string, { costAud: number; calls: number }>();
   const costBySource = new Map<string, { costAud: number; calls: number }>();
+  // C077 — per-project consumption (rows without project attribution group
+  // under "(no project)").
+  const costByProject = new Map<string, { costAud: number; calls: number }>();
   const byCohort = new Map<
     string,
     { users: Set<string>; costAud: number; calls: number }
@@ -488,6 +492,11 @@ adminRouter.get("/analytics", async (req, res) => {
     s.costAud += aud;
     s.calls += 1;
     costBySource.set(source, s);
+    const project = (r.project_id as string | null) ?? "(no project)";
+    const p = costByProject.get(project) ?? { costAud: 0, calls: 0 };
+    p.costAud += aud;
+    p.calls += 1;
+    costByProject.set(project, p);
     const cohort = cohortByUser.get(r.user_id as string) ?? "(no cohort)";
     const c = byCohort.get(cohort) ?? {
       users: new Set<string>(),
@@ -527,6 +536,10 @@ adminRouter.get("/analytics", async (req, res) => {
     costBySource: [...costBySource.entries()]
       .map(([source, v]) => ({ source, ...v }))
       .sort((a, b) => b.costAud - a.costAud),
+    costByProject: [...costByProject.entries()]
+      .map(([projectId, v]) => ({ projectId, ...v }))
+      .sort((a, b) => b.costAud - a.costAud)
+      .slice(0, 25),
     toolUsage: [...toolUsage.entries()]
       .map(([tool, count]) => ({ tool, count }))
       .sort((a, b) => b.count - a.count)

@@ -2,10 +2,17 @@
 /**
  * Mike (Australia) — Competitor Feature Scanner
  *
- * Tracks product/feature announcements from three legal-AI competitors:
+ * Tracks product/feature announcements from legal-AI competitors:
  *   - Harvey        (harvey.ai)
- *   - Legora        (legora.com)
+ *   - Legora        (legora.com) — was "Leya" pre-Feb-2025 rebrand; same company, not tracked separately
  *   - CoCounsel     (Thomson Reuters)
+ *   - Eudia         (eudia.com) — enterprise legal AI platform
+ *   - Hebbia        (hebbia.com) — cross-industry document/data AI, incl. legal solution
+ *   - vLex          (vlex.com, Vincent AI — part of Clio) — legal research + Studio no-code workflows
+ *   - Josef         (joseflegal.com) — AU-based no-code legal automation (Q&A, contracts, workflows)
+ *   - Neota Logic   (neota.com) — no-code governed AI workflow automation
+ *   - Checkbox      (checkbox.ai) — AI legal front door / intake-triage automation for in-house teams
+ *   - Litera        (litera.com) — Litera One / Kira / Lito: drafting, contract intelligence, KM
  *
  * Runs in parallel with the GitHub fork scan from `Start Mike.command`.
  *
@@ -22,7 +29,9 @@
  * features to-date). Every run regenerates reports/latest.html + latest.md,
  * grouped by capability with vendor tags; new items are badged and filterable.
  *
- * Usage:  node scan.mjs [--open-if-new] [--open] [--reset]
+ * Usage:  node scan.mjs [--open-if-new] [--open] [--reset] [--no-fetch]
+ *         --no-fetch rebuilds reports/latest.html+md from the register only:
+ *         no network, no scanCount bump, no new→seen aging, no register writes.
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, rmSync } from "node:fs";
@@ -37,6 +46,11 @@ const REPORTS = join(DIR, "reports");
 const args = process.argv.slice(2);
 const OPEN_IF_NEW = args.includes("--open-if-new");
 const OPEN_ALWAYS = args.includes("--open");
+// --no-fetch: report-only rebuild. Skips vendor fetches (no "Could not fetch"
+// notes) and takes NO register side effects: no scanCount bump, no new→seen
+// aging, no seenUrls writes. Used by Claude-driven weekly refreshes, which
+// update the register themselves and run in a sandbox without vendor access.
+const NO_FETCH = args.includes("--no-fetch");
 if (args.includes("--reset") && existsSync(REGISTER)) rmSync(REGISTER);
 
 // ── Capability groups (report order) ──────────────────────────────────────────
@@ -81,7 +95,72 @@ const SOURCES = [
     linkRe: /href="(\/en-us\/posts\/innovation\/cocounsel[a-z0-9-]+\/?)"[^>]*>([^<]{6,140})</gi,
     base: "https://www.thomsonreuters.com",
   },
+  {
+    vendor: "Eudia",
+    url: "https://www.eudia.com/blog",
+    // Framer site — anchor's first child is often a nested <img>/<div>, not plain text,
+    // so the title capture is optional ({0,140}); falls back to slug-derived title.
+    linkRe: /href="(\/blog\/[a-z0-9-]+)"[^>]*>([^<]{0,140})</gi,
+    base: "https://www.eudia.com",
+  },
+  {
+    vendor: "Hebbia",
+    url: "https://www.hebbia.com/blog",
+    // Contentful/React cards — same nested-child risk as Eudia.
+    linkRe: /href="(\/blog\/[a-z0-9-]+\/?)"[^>]*>([^<]{0,140})</gi,
+    base: "https://www.hebbia.com",
+  },
+  {
+    vendor: "vLex",
+    url: "https://vlex.com/news",
+    // vLex post slugs are mixed-case (e.g. /news/Introducing-Vincent-Studio)
+    linkRe: /href="(\/news\/[A-Za-z0-9-]+)"[^>]*>([^<]{0,140})</gi,
+    base: "https://vlex.com",
+  },
+  {
+    vendor: "Josef",
+    url: "https://joseflegal.com/blog/",
+    // WordPress — hrefs observed as absolute URLs, not relative paths.
+    linkRe: /href="(https:\/\/joseflegal\.com\/blog\/[a-z0-9-]+\/?)"[^>]*>([^<]{0,140})</gi,
+    base: "",
+  },
+  {
+    vendor: "Neota Logic",
+    url: "https://neota.com/news/",
+    // Page appeared to render mostly client-side on a one-off fetch — lowest confidence
+    // of the new sources; may need re-checking against the live page.
+    linkRe: /href="(\/news\/[a-z0-9-]+\/?)"[^>]*>([^<]{0,140})</gi,
+    base: "https://neota.com",
+  },
+  {
+    vendor: "Checkbox",
+    url: "https://www.checkbox.ai/blog",
+    // Webflow CMS cards — same nested-child risk as Eudia/Hebbia.
+    linkRe: /href="(\/blog\/[a-z0-9-]+)"[^>]*>([^<]{0,140})</gi,
+    base: "https://www.checkbox.ai",
+  },
+  {
+    vendor: "Litera",
+    url: "https://www.litera.com/resources?resource_type=22&sort_by=created_desc",
+    // Drupal "resources" listing filtered to blog (resource_type=22); cards nest an <img>
+    // before the title, same relaxed-capture reasoning as above.
+    linkRe: /href="(\/blog\/[a-z0-9-]+)"[^>]*>([^<]{0,140})</gi,
+    base: "https://www.litera.com",
+  },
 ];
+// NOTE: Eudia/Hebbia/vLex/Josef/Neota/Checkbox/Litera regexes are best-effort, built from
+// a one-off fetch of each vendor's blog/news index rather than a verified long-running
+// scrape (unlike Harvey/Legora/CoCounsel, which were validated over several scans). Their
+// title-capture group is relaxed to {0,140} (vs. the original three's {6,140}) because
+// several of these sites render card-style anchors whose first child is a nested
+// <img>/<div> rather than plain text — a strict capture would fail to match the whole
+// anchor (losing the URL too), not just the title; titleCaseFromSlug() already covers
+// the empty-title case. This sandbox has no general outbound HTTP access (proxy blocks
+// raw fetch/curl to arbitrary domains), so these were dry-run tested against sample
+// markup built from real observed link structures, not against the live pages. If a
+// vendor stops producing "new post" flags after a real run on your machine, check
+// scanNotes / last-scan.log first — the site's markup may differ from what was sampled
+// here — before assuming there's simply no news.
 
 // ── Curated baseline (features to-date) — seeded on first run ──────────────────
 // id assigned at seed time (C001…). date = YYYY-MM (announcement month).
@@ -219,12 +298,142 @@ const SEED_FEATURES = [
     title: "Thomson Reuters building its own LLM",
     description: "TR is developing a proprietary large language model to underpin CoCounsel.",
     url: "https://www.lawnext.com/2026/06/thomson-reuters-ceo-steve-hasker-on-the-next-generation-of-cocounsel-the-future-of-professionals-report-and-why-tr-is-building-its-own-llm.html" },
+
+  // Eudia ---------------------------------------------------------------------
+  { vendor: "Eudia", category: "Mobile & integrations", date: "2026-07",
+    title: "Eudia, now inside Slack",
+    description: "Slack integration brings Eudia's legal AI into the tools legal teams already work in.",
+    url: "https://www.eudia.com/blog/eudia-launches-slack-integration" },
+  { vendor: "Eudia", category: "Document review & extraction", date: "2026-06",
+    title: "Contract review, redlining & drafting in Eudia",
+    description: "Fast, accurate contracting workflow built for scale within the unified Eudia workspace.",
+    mikeAngle: "Directly comparable to Mike's tabular review + drafting — worth benchmarking depth of redlining.",
+    url: "https://www.eudia.com/blog/contract-review-redlining-drafting-in-eudia" },
+  { vendor: "Eudia", category: "Document review & extraction", date: "2026-05",
+    title: "Patent Review",
+    description: "Dedicated patent-review capability added to the Eudia platform.",
+    url: "https://www.eudia.com/blog/patent-review-in-eudia" },
+  { vendor: "Eudia", category: "Research & citations", date: "2026-05",
+    title: "Authoritative Legal Sources integration",
+    description: "Grounds outputs in licensed/authoritative legal databases rather than open web only.",
+    mikeAngle: "Same problem Mike solves via Jade/AustLII — compare sourcing model.",
+    url: "https://www.eudia.com/blog/eudia-launches-legal-databases-integration" },
+  { vendor: "Eudia", category: "Platform & models", date: "2026-05",
+    title: "Unified Workspace for Enterprise Legal Teams",
+    description: "Single workspace consolidating compliance, contracting, M&A, and litigation solutions ('Company Brain' institutional-knowledge framing).",
+    url: "https://www.eudia.com/blog/eudia-launches-unified-workspace-for-enterprise-legal-teams" },
+
+  // Hebbia ----------------------------------------------------------------------
+  { vendor: "Hebbia", category: "Knowledge & playbooks", date: "2026-04",
+    title: "Hebbia Skills — expertise at institutional scale",
+    description: "Turns institutional knowledge (incl. legal) into scalable, reusable instructions across a firm.",
+    mikeAngle: "Comparable framing to Mike's playbooks — Hebbia positions this cross-industry, not legal-only.",
+    url: "https://www.hebbia.com/blog/hebbia-skills-expertise-at-institutional-scale" },
+  { vendor: "Hebbia", category: "Agents & workflows", date: "2026-04",
+    title: "Introducing Projects",
+    description: "Shared organisational workspace so individual AI gains translate into team-level reuse.",
+    url: "https://www.hebbia.com/blog/introducing-projects" },
+  { vendor: "Hebbia", category: "Document review & extraction", date: "2026-06",
+    title: "Matrix workflow upgrades (monthly Disclosure releases)",
+    description: "Matrix (structured multi-step questions run across thousands of documents in one pass) gets recurring monthly capability upgrades.",
+    mikeAngle: "Matrix's bulk-question-across-documents model is close to Mike's tabular review/ask.",
+    url: "https://www.hebbia.com/blog/whats-new-june-disclosure-2026" },
+  { vendor: "Hebbia", category: "Mobile & integrations", date: "2026-07",
+    title: "Every Data Integration, One View",
+    description: "Consolidated view of every connected data source as Hebbia's connector library grows.",
+    url: "https://www.hebbia.com/blog/every-data-integration-one-view" },
+
+  // vLex / Vincent AI (part of Clio) --------------------------------------------
+  { vendor: "vLex", category: "Agents & workflows", date: "2026-01",
+    title: "Vincent Studio — no-code AI workflow builder",
+    description: "Enterprise/large-firm feature to codify firm expertise (contract playbooks, due-diligence frameworks) into governed, no-code AI workflows.",
+    mikeAngle: "Same territory as Mike's playbook-builder tools + agent runtime.",
+    url: "https://vlex.com/news/introducing-vincent-studio" },
+  { vendor: "vLex", category: "Research & citations", date: "2025-11",
+    title: "Vector-search research across 1B+ legal documents",
+    description: "Vincent's ML organises 1B+ legal documents via vector search for conceptual (not just keyword) research.",
+    url: "https://vlex.com/news/How-It-Works-Machine-Learning" },
+  { vendor: "vLex", category: "Analytics & admin", date: "2025-10",
+    title: "Zero Data Retention (ZDR) agreements",
+    description: "Explicit ZDR handling for privileged client communications passed to foundation models.",
+    mikeAngle: "Worth cross-checking Mike's provider data-handling docs for AU firms with similar privilege concerns.",
+    url: "https://vlex.com/news/How-It-Works-Zero-Data-Retention" },
+  { vendor: "vLex", category: "Platform & models", date: "2025-11",
+    title: "Clio acquires vLex ($1B) — Intelligent Legal Work Platform",
+    description: "vLex + Clio combine legal research (Vincent AI) with practice management into one connected platform.",
+    url: "https://vlex.com/news/vLex-Joins-Clio-in-Landmark-1B-Acquisition-And-Clio-Announces-Series-G-5B-Valuation" },
+
+  // Josef (AU) --------------------------------------------------------------------
+  { vendor: "Josef", category: "Agents & workflows", date: "2026-04",
+    title: "Rapid Ingestion Engine",
+    description: "AI pre-processing engine that turns messy/unstructured business inputs (e.g. email threads) into structured legal workflows.",
+    mikeAngle: "Closest AU-local competitor; worth tracking closely given shared AU/NZ regional focus.",
+    url: "https://www.lawnext.com/2026/04/josef-launches-rapid-ingestion-engine-using-ai-to-turn-messy-business-inputs-into-structured-legal-workflows.html" },
+  { vendor: "Josef", category: "Knowledge & playbooks", date: "2026-06",
+    title: "AI Q&A rolled out enterprise-wide (adidas, 65,000 employees)",
+    description: "Josef Q self-service legal Q&A deployed at enterprise scale, trained on company policies.",
+    url: "https://itbrief.news/story/adidas-rolls-out-ai-legal-chatbot-for-staff-guidance" },
+  { vendor: "Josef", category: "Enablement & other", date: "2026-07",
+    title: "Frontline Justice partnership — multi-state access-to-justice rollout",
+    description: "AI deployed to help protect access to SNAP benefits across multiple US states, via Frontline Justice partnership.",
+    url: "https://www.lawnext.com/2026/07/frontline-justice-and-josef-partner-on-multi-state-rollout-of-ai-to-protect-access-to-snap-benefits.html" },
+
+  // Neota Logic -------------------------------------------------------------------
+  { vendor: "Neota Logic", category: "Agents & workflows", date: "2026-01",
+    title: "Governed AI orchestration",
+    description: "LLMs used for unstructured tasks (extraction, drafting) while a rule-based, auditable orchestration layer governs final decision logic.",
+    mikeAngle: "A stricter governance model than Mike's current agent runtime — relevant if regulated/enterprise AU clients need deterministic guardrails.",
+    url: "https://neota.com/why-legal-ops-must-pivot-to-governed-ai-orchestration/" },
+  { vendor: "Neota Logic", category: "Mobile & integrations", date: "2025-08",
+    title: "Design Build Legal (DBL) partnership",
+    description: "Strategic partnership to transform legal operations through intelligent automation.",
+    url: "https://www.prweb.com/releases/neota-logic-and-design-build-legal-dbl-announce-strategic-partnership-to-transform-legal-operations-through-intelligent-automation-302694317.html" },
+
+  // Checkbox --------------------------------------------------------------------
+  { vendor: "Checkbox", category: "Agents & workflows", date: "2026",
+    title: "AI Legal Front Door",
+    description: "AI-powered intake/triage layer integrated into Slack, Teams, Salesforce etc.; understands, categorises, and routes incoming legal requests automatically.",
+    mikeAngle: "In-house intake/triage is outside Mike's current scope but relevant if Mike expands beyond firm/matter workflows.",
+    url: "https://www.checkbox.ai/legal-ai/ai-legal-intake-triage" },
+  { vendor: "Checkbox", category: "Knowledge & playbooks", date: "2026",
+    title: "AI Legal Chatbot trained on org policies & playbooks",
+    description: "Chatbot assistant trained on a company's own policies, playbooks and processes for self-service answers.",
+    url: "https://www.checkbox.ai/platform/ai-legal-chatbot" },
+  { vendor: "Checkbox", category: "Document review & extraction", date: "2026",
+    title: "Contract Lifecycle Management with AI term extraction",
+    description: "Automates intake through renewal, with AI-powered extraction of key contract terms and obligations.",
+    url: "https://www.checkbox.ai/platform/contract-lifecycle" },
+
+  // Litera ------------------------------------------------------------------------
+  { vendor: "Litera", category: "Platform & models", date: "2026-07",
+    title: "Litera relaunches as Litera One — unified practice + business of law AI agent",
+    description: "Company-wide relaunch unifying drafting, KM, contract intelligence and back-office tools behind a single AI agent (Lito).",
+    mikeAngle: "Signals the market consolidating around one agent per vendor rather than point tools — relevant to how Mike frames its own agent runtime.",
+    url: "https://www.litera.com/newslinks/litera-relaunches-unite-practice-and-business-law" },
+  { vendor: "Litera", category: "Document review & extraction", date: "2026",
+    title: "Kira Grid Chat — cross-document Q&A for contract review",
+    description: "Natural-language Q&A across the Kira Analysis Grid, answering questions that span many reviewed documents at once.",
+    mikeAngle: "Directly comparable to Mike's tabular_ask feature.",
+    url: "https://www.litera.com/blog/kira-grid-chat-cross-document-due-diligence" },
+  { vendor: "Litera", category: "Document review & extraction", date: "2026-01",
+    title: "Kira hybrid GenAI + proprietary AI contract review",
+    description: "Combines generative AI with proprietary models trained on 1M+ contracts for consistent 90%+ accuracy; toggle GenAI on/off per project for governance.",
+    url: "https://www.lawnext.com/2026/01/litera-expands-kiras-ai-capabilities-with-hybrid-gen-ai-proprietary-approach-to-contract-review.html" },
+  { vendor: "Litera", category: "Agents & workflows", date: "2026",
+    title: "Office & Dragons AI Agent — autonomous execution for legal deal workflows",
+    description: "Autonomous agent for transactional/deal work, reducing low-value document work by up to 97% per Litera's own figures.",
+    url: "https://www.litera.com/blog/office-dragons-ai-agent-legal-document-automation" },
+  { vendor: "Litera", category: "Platform & models", date: "2026",
+    title: "Claude Sonnet 5, Claude Fable 5 & GPT-5.6 live in Lito",
+    description: "Multi-frontier-model support added to Lito, Litera's legal AI agent.",
+    mikeAngle: "Mike is already multi-provider (Claude/Gemini/Kimi) — parity point on model breadth.",
+    url: "https://www.litera.com/blog/claude-sonnet-5-fable-5-gpt-5-6-in-lito" },
 ];
 
 // ── Register ──────────────────────────────────────────────────────────────────
 const emptyRegister = {
   version: 1,
-  vendors: ["Harvey", "Legora", "CoCounsel"],
+  vendors: ["Harvey", "Legora", "CoCounsel", "Eudia", "Hebbia", "vLex", "Josef", "Neota Logic", "Checkbox", "Litera"],
   lastScan: null,
   scanCount: 0,
   nextId: 1,
@@ -315,7 +524,13 @@ async function pollSources() {
 // ── Report ────────────────────────────────────────────────────────────────────
 function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
-const VENDOR_COLORS = { Harvey: "#6d28d9", Legora: "#0f766e", CoCounsel: "#b45309" };
+const VENDOR_COLORS = {
+  Harvey: "#6d28d9", Legora: "#0f766e", CoCounsel: "#b45309",
+  Eudia: "#1d4ed8", Hebbia: "#9333ea", vLex: "#0891b2",
+  Josef: "#c026d3", "Neota Logic": "#4d7c0f", Checkbox: "#e11d48",
+  Litera: "#0369a1",
+};
+const ALL_VENDORS = ["Harvey", "Legora", "CoCounsel", "Eudia", "Hebbia", "vLex", "Josef", "Neota Logic", "Checkbox", "Litera"];
 
 function writeReports() {
   mkdirSync(REPORTS, { recursive: true });
@@ -330,8 +545,8 @@ function writeReports() {
   // Markdown
   let md = `# Competitor Feature Scan — ${date}\n\n`;
   md += firstRun
-    ? `**First scan** — full baseline of features to-date across Harvey, Legora, and CoCounsel.\n\n`
-    : `Vendors: Harvey · Legora · CoCounsel · Total features: ${feats.length} · New since last scan: **${newCount}**\n\n`;
+    ? `**First scan** — full baseline of features to-date across ${ALL_VENDORS.join(", ")}.\n\n`
+    : `Vendors: ${ALL_VENDORS.join(" · ")} · Total features: ${feats.length} · New since last scan: **${newCount}**\n\n`;
   for (const n of scanNotes) md += `> ⚠️ ${n}\n\n`;
   for (const cat of cats) {
     md += `## ${cat}\n\n`;
@@ -393,16 +608,14 @@ function writeReports() {
 <h1>Competitor Feature Scan <small style="color:#888;font-weight:400">${date}</small></h1>
 <div class="summary">
   ${firstRun ? "<b>First scan</b> — full baseline of features to-date." : `<b>${feats.length}</b> features tracked · <b>${newCount}</b> flagged new since the last scan.`}
-  Tracking <b>Harvey</b>, <b>Legora</b>, and <b>CoCounsel</b>. Tick features, then <b>Copy request</b> and paste to Claude to design &amp; build them into Mike (Australia).
+  Tracking ${ALL_VENDORS.map((v) => `<b>${esc(v)}</b>`).join(", ")}. Tick features, then <b>Copy request</b> and paste to Claude to design &amp; build them into Mike (Australia).
 </div>
 ${scanNotes.map((n) => `<div class="note">⚠️ ${esc(n)}</div>`).join("")}
 <div class="controls">
   <span style="font-size:13px;color:#666">Filter:</span>
   <button data-f="all" class="active" onclick="setFilter('all',this)">All</button>
   <button data-f="new" onclick="setFilter('new',this)">New only</button>
-  <button data-f="Harvey" onclick="setFilter('Harvey',this)">Harvey</button>
-  <button data-f="Legora" onclick="setFilter('Legora',this)">Legora</button>
-  <button data-f="CoCounsel" onclick="setFilter('CoCounsel',this)">CoCounsel</button>
+  ${ALL_VENDORS.map((v) => `<button data-f="${esc(v)}" onclick="setFilter('${esc(v)}',this)">${esc(v)}</button>`).join("\n  ")}
 </div>
 ${rows}
 <div id="bar"><span id="sel"></span><code id="cmd"></code><button onclick="copyCmd()">Copy request</button></div>
@@ -439,6 +652,14 @@ function copyCmd(){navigator.clipboard.writeText(document.getElementById('cmd').
 }
 
 async function main() {
+  if (NO_FETCH) {
+    console.log("Competitor scan (--no-fetch: report rebuild only)...");
+    writeReports();
+    console.log("NEW_ITEMS=0");
+    if (OPEN_ALWAYS) execFile("open", [join(REPORTS, "latest.html")], () => {});
+    return;
+  }
+
   console.log(`Competitor scan (${firstRun ? "first run — seeding baseline" : "incremental"})...`);
 
   // Age prior features: "new" only ever means "new since the last scan".

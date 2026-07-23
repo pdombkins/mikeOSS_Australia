@@ -4,9 +4,13 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
-import { saveClause, searchClauses } from "../lib/clauses";
+import { saveClause, searchClauses, importClauses } from "../lib/clauses";
+import type { ClauseInput } from "../lib/clauses";
 import { getUserApiKeys } from "../lib/userApiKeys";
 import { recordAudit } from "../lib/audit";
+import { parseCsvRecords } from "../lib/csv";
+
+const IMPORT_MAX_ROWS = 500;
 
 export const clausesRouter = Router();
 
@@ -111,6 +115,81 @@ clausesRouter.put("/:id", requireAuth, async (req, res) => {
     .eq("owner_id", userId);
   if (error) return void res.status(500).json({ detail: error.message });
   res.json({ ok: true });
+});
+
+// POST /clauses/import — C079 bulk CSV import (≤500 rows).
+// Body: { csv: string, project_id?: string }
+// CSV columns: title*, body*, agreement_type, guidance, tags (";"-separated).
+clausesRouter.post("/import", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const db = createServerSupabase();
+  const csv = typeof req.body?.csv === "string" ? req.body.csv : "";
+  if (!csv.trim())
+    return void res.status(400).json({ detail: "csv is required" });
+  const parsed = parseCsvRecords(csv);
+  if (!parsed || parsed.records.length === 0)
+    return void res
+      .status(400)
+      .json({ detail: "CSV has no data rows (a header row is required)" });
+  if (!parsed.headers.includes("title") || !parsed.headers.includes("body"))
+    return void res.status(400).json({
+      detail: 'CSV must have "title" and "body" columns',
+    });
+  if (parsed.records.length > IMPORT_MAX_ROWS)
+    return void res.status(400).json({
+      detail: `Too many rows (${parsed.records.length}); maximum is ${IMPORT_MAX_ROWS}`,
+    });
+
+  const projectId =
+    typeof req.body?.project_id === "string" && req.body.project_id
+      ? req.body.project_id
+      : null;
+
+  const inputs: ClauseInput[] = [];
+  const invalid: { row: number; reason: string }[] = [];
+  parsed.records.forEach((rec, i) => {
+    if (!rec.title || !rec.body) {
+      invalid.push({ row: i + 1, reason: "missing title or body" });
+      return;
+    }
+    inputs.push({
+      title: rec.title,
+      body: rec.body,
+      agreement_type: rec.agreement_type || null,
+      guidance: rec.guidance || null,
+      tags: rec.tags
+        ? rec.tags
+            .split(";")
+            .map((t) => t.trim())
+            .filter(Boolean)
+        : [],
+      project_id: projectId,
+    });
+  });
+
+  try {
+    const apiKeys = await getUserApiKeys(userId, db);
+    const result = await importClauses(db, userId, inputs, apiKeys);
+    recordAudit({
+      actorId: userId,
+      eventType: "doc_edit",
+      resourceType: "clause",
+      resourceId: null,
+      detail: {
+        action: "bulk_import",
+        imported: result.imported,
+        skipped: result.skipped.length + invalid.length,
+      },
+    });
+    res.json({
+      imported: result.imported,
+      skipped: [...invalid, ...result.skipped].sort((a, b) => a.row - b.row),
+    });
+  } catch (err) {
+    res.status(500).json({
+      detail: err instanceof Error ? err.message : "Import failed",
+    });
+  }
 });
 
 // DELETE /clauses/:id

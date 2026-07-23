@@ -1783,6 +1783,158 @@ export async function deleteClause(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// C076 — Lists: tasks, facts & deadlines on matters
+// ---------------------------------------------------------------------------
+
+export type ListItemKind = "task" | "fact" | "deadline";
+export type ListItemStatus = "open" | "in_progress" | "done" | "dismissed";
+
+export type ListItem = {
+    id: string;
+    project_id: string;
+    created_by: string;
+    kind: ListItemKind;
+    title: string;
+    detail: string | null;
+    due_at: string | null;
+    status: ListItemStatus;
+    assignee_user_id: string | null;
+    document_id: string | null;
+    citation: string | null;
+    agent_run_id: string | null;
+    position: number;
+    created_at: string;
+    updated_at: string;
+};
+
+export async function listProjectListItems(
+    projectId: string,
+): Promise<{ items: ListItem[] }> {
+    return apiRequest(`/projects/${projectId}/list`);
+}
+
+export async function createProjectListItem(
+    projectId: string,
+    input: {
+        kind: ListItemKind;
+        title: string;
+        detail?: string | null;
+        due_at?: string | null;
+        assignee_user_id?: string | null;
+        document_id?: string | null;
+        citation?: string | null;
+    },
+): Promise<{ item: ListItem }> {
+    return apiRequest(`/projects/${projectId}/list`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+export async function updateProjectListItem(
+    projectId: string,
+    itemId: string,
+    patch: Partial<{
+        status: ListItemStatus;
+        title: string;
+        detail: string | null;
+        due_at: string | null;
+        assignee_user_id: string | null;
+        citation: string | null;
+        agent_run_id: string | null;
+        position: number;
+    }>,
+): Promise<{ item: ListItem }> {
+    return apiRequest(`/projects/${projectId}/list/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+    });
+}
+
+export async function deleteProjectListItem(
+    projectId: string,
+    itemId: string,
+): Promise<void> {
+    await apiRequest(`/projects/${projectId}/list/${itemId}`, {
+        method: "DELETE",
+    });
+}
+
+// ---------------------------------------------------------------------------
+// C077 — consumption metering + soft budget
+// ---------------------------------------------------------------------------
+
+export type UsageMonth = {
+    month: string;
+    cost_aud: number;
+    by_source: Record<string, number>;
+    by_model: Record<string, number>;
+    calls: number;
+};
+
+export type BudgetStatus = {
+    monthly_budget_aud: number | null;
+    month: string;
+    spent_aud: number;
+    ratio: number | null;
+};
+
+export async function getUserUsage(months = 6): Promise<{
+    usage: { months: UsageMonth[]; total_aud: number };
+    budget: BudgetStatus;
+}> {
+    return apiRequest(`/user/usage?months=${months}`);
+}
+
+export async function updateBudget(
+    monthlyBudgetAud: number | null,
+): Promise<{ ok: boolean; monthly_budget_aud: number | null }> {
+    return apiRequest(`/user/budget`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monthly_budget_aud: monthlyBudgetAud }),
+    });
+}
+
+export async function getProjectUsage(projectId: string): Promise<{
+    total_aud: number;
+    this_month_aud: number;
+    calls: number;
+}> {
+    return apiRequest(`/projects/${projectId}/usage`);
+}
+
+// C079 — bulk CSV import.
+export type ImportResult = {
+    imported: number;
+    skipped: { row: number; reason: string }[];
+};
+
+export async function importClausesCsv(
+    csv: string,
+    projectId?: string | null,
+): Promise<ImportResult> {
+    return apiRequest(`/clauses/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv, project_id: projectId ?? undefined }),
+    });
+}
+
+export async function importPlaybookRulesCsv(
+    playbookId: string,
+    csv: string,
+): Promise<ImportResult & { playbook?: Playbook }> {
+    return apiRequest(`/playbooks/${playbookId}/rules/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv }),
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Deep-verify (C024)
 // ---------------------------------------------------------------------------
 
@@ -2029,6 +2181,128 @@ export async function removeProjectMember(
     memberUserId: string,
 ): Promise<void> {
     await apiRequest(`/projects/${projectId}/members/${memberUserId}`, {
+        method: "DELETE",
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Student groups — bulk invite & group-managed access
+// ---------------------------------------------------------------------------
+
+export type UserGroup = {
+    id: string;
+    name: string;
+    description: string | null;
+    created_at: string;
+    member_count: number;
+    registered_count: number;
+    project_count: number;
+};
+
+export type UserGroupMember = {
+    id: string;
+    email: string;
+    user_id: string | null;
+    registered: boolean;
+    display_name: string | null;
+    created_at: string;
+};
+
+export type UserGroupGrant = {
+    id: string;
+    project_id: string;
+    role: string;
+    project_name: string | null;
+    created_at: string;
+};
+
+export type ProjectGroupGrant = {
+    id: string;
+    group_id: string;
+    role: Exclude<ProjectMemberRole, "owner">;
+    group_name: string | null;
+    member_count: number;
+};
+
+export async function listGroups(): Promise<{ groups: UserGroup[] }> {
+    return apiRequest(`/groups`);
+}
+
+export async function createGroup(
+    name: string,
+    description?: string,
+): Promise<{ group: { id: string } }> {
+    return apiRequest(`/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description }),
+    });
+}
+
+export async function deleteGroup(id: string): Promise<void> {
+    await apiRequest(`/groups/${id}`, { method: "DELETE" });
+}
+
+export async function getGroup(id: string): Promise<{
+    group: { id: string; name: string; description: string | null };
+    members: UserGroupMember[];
+    grants: UserGroupGrant[];
+}> {
+    return apiRequest(`/groups/${id}`);
+}
+
+export async function addGroupMembers(
+    id: string,
+    emails: string,
+): Promise<{ added: number; invalid: string[] }> {
+    return apiRequest(`/groups/${id}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails }),
+    });
+}
+
+export async function removeGroupMember(
+    groupId: string,
+    memberId: string,
+): Promise<void> {
+    await apiRequest(`/groups/${groupId}/members/${memberId}`, {
+        method: "DELETE",
+    });
+}
+
+export async function inviteGroup(groupId: string): Promise<{
+    invited: number;
+    skipped_registered: number;
+    failed: { email: string; reason: string }[];
+}> {
+    return apiRequest(`/groups/${groupId}/invite`, { method: "POST" });
+}
+
+export async function getProjectGroupGrants(projectId: string): Promise<{
+    role: ProjectMemberRole;
+    grants: ProjectGroupGrant[];
+}> {
+    return apiRequest(`/projects/${projectId}/groups`);
+}
+
+export async function upsertProjectGroupGrant(
+    projectId: string,
+    groupId: string,
+    role: Exclude<ProjectMemberRole, "owner">,
+): Promise<void> {
+    await apiRequest(`/projects/${projectId}/groups`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: groupId, role }),
+    });
+}
+
+export async function removeProjectGroupGrant(
+    projectId: string,
+    groupId: string,
+): Promise<void> {
+    await apiRequest(`/projects/${projectId}/groups/${groupId}`, {
         method: "DELETE",
     });
 }

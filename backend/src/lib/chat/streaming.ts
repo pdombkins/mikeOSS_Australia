@@ -24,6 +24,7 @@ import {
   CLAUSE_TOOLS,
   TABULAR_ASK_TOOLS,
 } from "./tools/kbTools";
+import { LIST_TOOLS } from "./tools/listTools";
 import { getOrgContextForUser } from "../orgContext";
 import { isKnowledgeBaseConfigured } from "../knowledgeBase";
 import { calculateCostAud } from "../pricing";
@@ -223,6 +224,8 @@ export async function runLLMStream(params: {
     ...PLAYBOOK_BUILDER_TOOLS,
     ...CLAUSE_TOOLS,
     ...TABULAR_ASK_TOOLS,
+    // C076 — Lists tools only make sense with a matter in context.
+    ...(projectId ? LIST_TOOLS : []),
   ];
   let activeTools = extraTools?.length
     ? [...baseTools, ...mcpTools, ...extraTools]
@@ -596,6 +599,8 @@ export async function runLLMStream(params: {
         const { error: insertErr } = await db.from("query_costs").insert({
           user_id: userId,
           chat_id: chatId ?? null,
+          // C077 — per-project consumption attribution.
+          project_id: projectId ?? null,
           model: cost.model,
           input_tokens: cost.inputTokens,
           output_tokens: cost.outputTokens,

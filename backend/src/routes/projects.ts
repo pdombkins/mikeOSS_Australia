@@ -15,6 +15,7 @@ import {
 import { docxToPdf, convertedPdfKey } from "../lib/convert";
 import { checkProjectAccess } from "../lib/access";
 import { can, isProjectRole } from "../lib/rbac";
+import { getProjectUsage } from "../lib/usage";
 import { recordAudit } from "../lib/audit";
 import { singleFileUpload } from "../lib/upload";
 import { deleteUserProjects } from "../lib/userDataCleanup";
@@ -395,6 +396,20 @@ projectsRouter.delete("/:projectId", requireAuth, async (req, res) => {
 });
 
 // GET /projects/:projectId/documents
+// GET /projects/:projectId/usage — C077 per-matter consumption (AUD).
+projectsRouter.get("/:projectId/usage", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string | undefined;
+  const { projectId } = req.params;
+  const db = createServerSupabase();
+
+  const access = await checkProjectAccess(projectId, userId, userEmail, db);
+  if (!access.ok)
+    return void res.status(404).json({ detail: "Project not found" });
+
+  res.json(await getProjectUsage(db, projectId));
+});
+
 projectsRouter.get("/:projectId/documents", requireAuth, async (req, res) => {
   const userId = res.locals.userId as string;
   const userEmail = res.locals.userEmail as string | undefined;
@@ -1153,6 +1168,144 @@ projectsRouter.delete(
       resourceType: "project",
       resourceId: projectId,
       detail: { action: "remove", member: memberUserId },
+    });
+    res.json({ ok: true });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Student-group grants — share a project with a whole group in one action.
+// Same manage gate as individual members; removing a grant walls off the
+// entire cohort at once.
+// ---------------------------------------------------------------------------
+
+// GET /projects/:projectId/groups — list group grants.
+projectsRouter.get("/:projectId/groups", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string | undefined;
+  const { projectId } = req.params;
+  const db = createServerSupabase();
+  const access = await checkProjectAccess(projectId, userId, userEmail, db);
+  if (!access.ok)
+    return void res.status(404).json({ detail: "Project not found" });
+
+  const { data: grants } = await db
+    .from("project_group_grants")
+    .select("id, group_id, role, created_at, user_groups(name)")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+  const rows = (grants ?? []) as unknown as {
+    id: string;
+    group_id: string;
+    role: string;
+    created_at: string;
+    user_groups: { name: string } | null;
+  }[];
+
+  const groupIds = rows.map((g) => g.group_id);
+  let counts = new Map<string, number>();
+  if (groupIds.length > 0) {
+    const { data: members } = await db
+      .from("user_group_members")
+      .select("group_id")
+      .in("group_id", groupIds);
+    counts = ((members ?? []) as { group_id: string }[]).reduce(
+      (acc, m) => acc.set(m.group_id, (acc.get(m.group_id) ?? 0) + 1),
+      new Map<string, number>(),
+    );
+  }
+
+  res.json({
+    role: access.role,
+    grants: rows.map((g) => ({
+      id: g.id,
+      group_id: g.group_id,
+      role: g.role,
+      group_name: g.user_groups?.name ?? null,
+      member_count: counts.get(g.group_id) ?? 0,
+    })),
+  });
+});
+
+// PUT /projects/:projectId/groups { group_id, role } — add or change a grant.
+projectsRouter.put("/:projectId/groups", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string | undefined;
+  const { projectId } = req.params;
+  const db = createServerSupabase();
+  const access = await checkProjectAccess(projectId, userId, userEmail, db);
+  if (!access.ok)
+    return void res.status(404).json({ detail: "Project not found" });
+  if (!can(access.role, "manage"))
+    return void res
+      .status(403)
+      .json({ detail: "Only the project owner can manage group access" });
+
+  const groupId =
+    typeof req.body?.group_id === "string" ? req.body.group_id : "";
+  const role = req.body?.role;
+  if (!groupId || !isProjectRole(role) || role === "owner")
+    return void res
+      .status(400)
+      .json({ detail: "group_id and role (editor|reviewer|viewer) required" });
+
+  const { data: group } = await db
+    .from("user_groups")
+    .select("id, name")
+    .eq("id", groupId)
+    .maybeSingle();
+  if (!group) return void res.status(404).json({ detail: "Group not found" });
+
+  const { error } = await db.from("project_group_grants").upsert(
+    { project_id: projectId, group_id: groupId, role, added_by: userId },
+    { onConflict: "project_id,group_id" },
+  );
+  if (error) return void res.status(500).json({ detail: error.message });
+  recordAudit({
+    actorId: userId,
+    eventType: "member_change",
+    projectId,
+    resourceType: "project",
+    resourceId: projectId,
+    detail: {
+      action: "group_grant",
+      group_id: groupId,
+      group_name: (group as { name: string }).name,
+      role,
+    },
+  });
+  res.json({ ok: true });
+});
+
+// DELETE /projects/:projectId/groups/:groupId — remove a grant (wall the group off).
+projectsRouter.delete(
+  "/:projectId/groups/:groupId",
+  requireAuth,
+  async (req, res) => {
+    const userId = res.locals.userId as string;
+    const userEmail = res.locals.userEmail as string | undefined;
+    const { projectId, groupId } = req.params;
+    const db = createServerSupabase();
+    const access = await checkProjectAccess(projectId, userId, userEmail, db);
+    if (!access.ok)
+      return void res.status(404).json({ detail: "Project not found" });
+    if (!can(access.role, "manage"))
+      return void res
+        .status(403)
+        .json({ detail: "Only the project owner can manage group access" });
+
+    await db
+      .from("project_group_grants")
+      .delete()
+      .eq("project_id", projectId)
+      .eq("group_id", groupId);
+    recordAudit({
+      actorId: userId,
+      eventType: "member_change",
+      projectId,
+      resourceType: "project",
+      resourceId: projectId,
+      detail: { action: "group_revoke", group_id: groupId },
     });
     res.json({ ok: true });
   },

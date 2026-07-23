@@ -13,6 +13,10 @@
 
 import type { createServerSupabase } from "./supabase";
 import type { ProjectRole } from "./rbac";
+import {
+    groupRoleForProject,
+    listGroupAccessibleProjectIds,
+} from "./groupAccess";
 
 type Db = ReturnType<typeof createServerSupabase>;
 
@@ -72,6 +76,18 @@ export async function checkProjectAccess(
             role: memberRole,
             project: proj,
         };
+    }
+
+    // Group grants (student groups): membership in a granted group confers
+    // the grant's role. Direct project_members rows (above) take precedence.
+    const groupRole = await groupRoleForProject(
+        projectId,
+        userId,
+        userEmail,
+        db,
+    );
+    if (groupRole) {
+        return { ok: true, isOwner: false, role: groupRole, project: proj };
     }
 
     // Legacy fallback: shared_with email list (pre-RBAC shares behaved as
@@ -200,7 +216,7 @@ export async function listAccessibleProjectIds(
     userEmail: string | null | undefined,
     db: Db,
 ): Promise<string[]> {
-    const [{ data: own }, { data: shared }, { data: memberships }] =
+    const [{ data: own }, { data: shared }, { data: memberships }, groupProjectIds] =
         await Promise.all([
             db.from("projects").select("id").eq("user_id", userId),
             userEmail
@@ -214,6 +230,7 @@ export async function listAccessibleProjectIds(
                 .from("project_members")
                 .select("project_id")
                 .eq("user_id", userId),
+            listGroupAccessibleProjectIds(userId, userEmail, db),
         ]);
     const ids = new Set<string>();
     for (const p of (own ?? []) as { id: string }[]) ids.add(p.id);
@@ -221,5 +238,6 @@ export async function listAccessibleProjectIds(
     for (const m of (memberships ?? []) as { project_id: string }[]) {
         ids.add(m.project_id);
     }
+    for (const id of groupProjectIds) ids.add(id);
     return [...ids];
 }

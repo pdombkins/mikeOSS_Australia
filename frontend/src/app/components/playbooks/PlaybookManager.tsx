@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Plus,
     Trash2,
@@ -9,7 +9,9 @@ import {
     ChevronRight,
     Loader2,
     GripVertical,
+    Upload,
 } from "lucide-react";
+import { parseCsvRecords } from "@/app/lib/csv";
 import {
     listPlaybooks,
     getPlaybook,
@@ -358,6 +360,8 @@ interface EditorProps {
     removeRule: (i: number) => void;
 }
 
+const RULE_SEVERITIES = new Set(["low", "medium", "high"]);
+
 function PlaybookEditor({
     draft,
     saving,
@@ -369,6 +373,66 @@ function PlaybookEditor({
     addRule,
     removeRule,
 }: EditorProps) {
+    const csvRef = useRef<HTMLInputElement>(null);
+    const [importNote, setImportNote] = useState<string | null>(null);
+
+    // C079 — append CSV rows to the draft; nothing persists until Save.
+    // Columns: topic*, preferred, acceptable_fallback, dealbreaker,
+    //          severity (low|medium|high), notes.
+    const importCsv = async (file: File) => {
+        setImportNote(null);
+        const parsed = parseCsvRecords(await file.text());
+        if (!parsed || parsed.records.length === 0) {
+            setImportNote("No data rows found (a header row is required).");
+            return;
+        }
+        if (!parsed.headers.includes("topic")) {
+            setImportNote('CSV must have a "topic" column.');
+            return;
+        }
+        let skipped = 0;
+        const rules: DraftRule[] = [];
+        for (const rec of parsed.records) {
+            if (!rec.topic) {
+                skipped++;
+                continue;
+            }
+            const sev = (rec.severity || "medium").toLowerCase();
+            rules.push({
+                topic: rec.topic,
+                preferred: rec.preferred ?? "",
+                acceptable_fallback: rec.acceptable_fallback ?? "",
+                dealbreaker: rec.dealbreaker ?? "",
+                severity: (RULE_SEVERITIES.has(sev)
+                    ? sev
+                    : "medium") as PlaybookSeverity,
+                notes: rec.notes ?? "",
+                _open: false,
+            });
+        }
+        setField({ rules: [...draft.rules, ...rules] });
+        setImportNote(
+            `${rules.length} position${rules.length === 1 ? "" : "s"} added${
+                skipped ? `, ${skipped} skipped (missing topic)` : ""
+            } — review and Save to keep.`,
+        );
+    };
+
+    const downloadTemplate = () => {
+        const blob = new Blob(
+            [
+                "topic,preferred,acceptable_fallback,dealbreaker,severity,notes\n",
+            ],
+            { type: "text/csv" },
+        );
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "playbook-rules-template.csv";
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-gray-900/30 backdrop-blur-sm">
             <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
@@ -424,13 +488,45 @@ function PlaybookEditor({
                             <h3 className="text-sm font-semibold text-gray-800">
                                 Standard positions
                             </h3>
-                            <button
-                                onClick={addRule}
-                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
-                            >
-                                <Plus className="h-4 w-4" /> Add position
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => csvRef.current?.click()}
+                                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
+                                    title="Append positions from a CSV file"
+                                >
+                                    <Upload className="h-4 w-4" /> Import CSV
+                                </button>
+                                <button
+                                    onClick={downloadTemplate}
+                                    className="text-xs text-gray-400 underline hover:text-gray-600"
+                                >
+                                    template
+                                </button>
+                                <input
+                                    ref={csvRef}
+                                    type="file"
+                                    accept=".csv,text/csv"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const f = e.target.files?.[0];
+                                        if (f) void importCsv(f);
+                                        e.target.value = "";
+                                    }}
+                                />
+                                <button
+                                    onClick={addRule}
+                                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
+                                >
+                                    <Plus className="h-4 w-4" /> Add position
+                                </button>
+                            </div>
                         </div>
+
+                        {importNote && (
+                            <p className="mb-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-600">
+                                {importNote}
+                            </p>
+                        )}
 
                         {draft.rules.length === 0 && (
                             <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center text-sm text-gray-500">

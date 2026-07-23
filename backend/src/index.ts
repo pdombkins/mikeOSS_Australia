@@ -21,9 +21,14 @@ import { agentsRouter } from "./routes/agents";
 import { clausesRouter } from "./routes/clauses";
 import { verifyRouter } from "./routes/verify";
 import { regwatchRouter } from "./routes/regwatch";
+import { listsRouter } from "./routes/lists";
 import { mcpServerRouter } from "./routes/mcpServer";
 import { patsRouter } from "./routes/pats";
+import { groupsRouter } from "./routes/groups";
 import { runRegwatchScan } from "./lib/regwatch/scan";
+import { checkBudgetsAndNotify } from "./lib/usage";
+import { allowedOrigins } from "./lib/urls";
+import { checkDeadlinesAndNotify } from "./lib/lists";
 import { recoverOrphanedRuns } from "./lib/agents/executor";
 
 const app = express();
@@ -124,9 +129,18 @@ app.use(
   }),
 );
 
+// Requests with no Origin header (curl, server-to-server, same-origin) are
+// allowed through; browser origins must be in FRONTEND_URL (see lib/urls.ts,
+// which supports a comma-separated list for multi-domain deploys).
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL ?? "http://localhost:3000",
+    origin(origin, callback) {
+      const allowed = allowedOrigins();
+      if (!origin || allowed.includes(origin.replace(/\/+$/, ""))) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+    },
     credentials: true,
   }),
 );
@@ -162,6 +176,7 @@ app.use((req, res, next) =>
 app.use("/chat", chatRouter);
 app.use("/projects", projectsRouter);
 app.use("/projects/:projectId/chat", projectChatRouter);
+app.use("/projects/:projectId/list", listsRouter);
 app.use("/single-documents", documentsRouter);
 app.use("/library", libraryRouter);
 app.use("/tabular-review", tabularRouter);
@@ -180,6 +195,7 @@ app.use("/verify", verifyRouter);
 app.use("/regwatch", regwatchRouter);
 app.use("/mcp-server", mcpServerRouter);
 app.use("/pats", patsRouter);
+app.use("/groups", groupsRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
@@ -202,4 +218,24 @@ setTimeout(
 if (process.env.REGWATCH_DISABLED !== "1") {
   setTimeout(() => void runRegwatchScan().catch(() => {}), 60_000);
   setInterval(() => void runRegwatchScan().catch(() => {}), 6 * 60 * 60 * 1000);
+}
+
+// C077 — soft-budget sweep: shortly after boot, then daily. Warnings only
+// (notification at 80%+ of a user's monthly budget); never blocks anything.
+if (process.env.BUDGET_ALERTS_DISABLED !== "1") {
+  setTimeout(() => void checkBudgetsAndNotify().catch(() => {}), 120_000);
+  setInterval(
+    () => void checkBudgetsAndNotify().catch(() => {}),
+    24 * 60 * 60 * 1000,
+  );
+}
+
+// C076 — list deadline reminders: shortly after boot, then daily. Notifies
+// assignees of open tasks/deadlines due within 72h (or overdue).
+if (process.env.LISTS_REMINDERS_DISABLED !== "1") {
+  setTimeout(() => void checkDeadlinesAndNotify().catch(() => {}), 180_000);
+  setInterval(
+    () => void checkDeadlinesAndNotify().catch(() => {}),
+    24 * 60 * 60 * 1000,
+  );
 }

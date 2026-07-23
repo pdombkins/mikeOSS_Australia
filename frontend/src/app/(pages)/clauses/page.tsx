@@ -12,9 +12,11 @@ import { useAuth } from "@/app/contexts/AuthContext";
 import {
     createClause,
     deleteClause,
+    importClausesCsv,
     listClauses,
     type Clause,
 } from "@/app/lib/mikeApi";
+import CsvImportButton from "@/app/components/CsvImportButton";
 
 const AGREEMENT_TYPES = [
     "",
@@ -84,12 +86,29 @@ export default function ClausesPage() {
                 <h1 className="flex items-center gap-2 text-2xl font-medium font-serif text-gray-900">
                     <BookMarked className="h-5 w-5" /> My Clauses
                 </h1>
-                <button
-                    onClick={() => setShowNew(true)}
-                    className="flex items-center gap-1.5 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white"
-                >
-                    <Plus className="h-4 w-4" /> New clause
-                </button>
+                <div className="flex items-center gap-2">
+                    <CsvImportButton
+                        templateHeaders={[
+                            "title",
+                            "body",
+                            "agreement_type",
+                            "guidance",
+                            "tags",
+                        ]}
+                        templateFilename="clauses-template.csv"
+                        onImport={async (csv) => {
+                            const result = await importClausesCsv(csv);
+                            await refresh();
+                            return result;
+                        }}
+                    />
+                    <button
+                        onClick={() => setShowNew(true)}
+                        className="flex items-center gap-1.5 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white"
+                    >
+                        <Plus className="h-4 w-4" /> New clause
+                    </button>
+                </div>
             </div>
             <p className="mb-4 text-sm text-gray-500">
                 Your preferred contract provisions. Drafting agents and playbook

@@ -42,7 +42,16 @@ export type AgentPlan = {
 /** Tools each specialist role may use (C013 guardrails / tool routing).
  *  Write-capable tools are confined to drafting; research is read-only. */
 export const ROLE_TOOLSETS: Record<AgentRole, string[]> = {
-    intake: ["list_documents", "read_document", "find_in_document"],
+    // C076 — list tools: intake & drafting may create/update matter list
+    // items (write); research/review/verify read the list only.
+    intake: [
+        "list_documents",
+        "read_document",
+        "find_in_document",
+        "list_list_items",
+        "add_list_item",
+        "update_list_item_status",
+    ],
     research: [
         "list_documents",
         "fetch_documents",
@@ -57,6 +66,7 @@ export const ROLE_TOOLSETS: Record<AgentRole, string[]> = {
         "jade_fetch_document",
         "jade_format_citation",
         "tabular_ask",
+        "list_list_items",
     ],
     drafting: [
         "list_documents",
@@ -72,6 +82,9 @@ export const ROLE_TOOLSETS: Record<AgentRole, string[]> = {
         "edit_document",
         "replicate_document",
         "jade_format_citation",
+        "list_list_items",
+        "add_list_item",
+        "update_list_item_status",
     ],
     review: [
         "list_documents",
@@ -84,6 +97,7 @@ export const ROLE_TOOLSETS: Record<AgentRole, string[]> = {
         "search_clauses",
         "jade_validate_citation",
         "jade_format_citation",
+        "list_list_items",
     ],
     verify: [
         "read_document",
@@ -92,6 +106,7 @@ export const ROLE_TOOLSETS: Record<AgentRole, string[]> = {
         "jade_fetch_document",
         "jade_format_citation",
         "verify_assertions",
+        "list_list_items",
     ],
 };
 
@@ -106,6 +121,9 @@ export const WRITE_TOOLS = new Set([
     "upsert_playbook_rule",
     "delete_playbook_rule",
     "save_clause",
+    // C076 — list mutations gate plans behind approval too.
+    "add_list_item",
+    "update_list_item_status",
 ]);
 
 export function planNeedsApproval(plan: AgentPlan): boolean {

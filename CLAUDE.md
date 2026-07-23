@@ -114,6 +114,14 @@ npm run dev --prefix frontend  # port 3000
 ### New env vars (all optional)
 `KIMI_BASE_URL` `KIMI_MODEL` `KIMI_INPUT_PRICE` `KIMI_OUTPUT_PRICE` `MOONSHOT_API_KEY` · `RESEND_API_KEY` `NOTIFICATIONS_FROM_EMAIL` · `REGWATCH_DISABLED`
 
+## 2026-07-21 Build — C076 C077 C078 C079 + scan --no-fetch (design: docs/design/2026-07-21_c076-c079_design.md)
+- **C078 cell refresh**: `regenerate-cell` now has v2 parity (C015 type hints, C031 reference doc, provenance in content JSON: `regenerated_by/at`, `superseded_manual_summary`), audit-logged, UI confirm before overwriting manual edits. Tabular pipeline now records **estimated** spend (chars/4) → `query_costs` sources `tabular` / `tabular_ask` (was previously unrecorded).
+- **C079 bulk import**: `POST /clauses/import` (≤500 rows; batch embeddings; dupe-skip) + `POST /playbooks/:id/rules/import` (append). `lib/csv.ts` both ends. UI: Import CSV on /clauses (`CsvImportButton`) + playbook editor (client-side parse into draft, Save persists).
+- **C077 consumption**: `query_costs.project_id` (populated by runLLMStream + tabular paths), `GET /user/usage`, `PATCH /user/budget`, `GET /projects/:id/usage`, Account → Usage page, AI-spend in ProjectDetailsModal, `costByProject` in admin analytics, soft budgets (`user_profiles.monthly_budget_aud`; daily sweep notifies at 80%+, `BudgetBanner` on assistant at 100%; NEVER blocks).
+- **C076 Lists**: `list_items` table (task/fact/deadline; RBAC via project_members), `routes/lists.ts` at `/projects/:id/list`, tools `list_list_items`/`add_list_item`/`update_list_item_status` (project chats + agents; write tools = intake/drafting only, added to WRITE_TOOLS → approval gate), daily deadline sweep (72h, NotificationKind `deadline`), Lists tab on project page with Run-with-agent (links `agent_run_id`; human confirms completion).
+- **scan.mjs `--no-fetch`**: report-only rebuild — no network, no scanCount bump, no new→seen aging. Use for sandbox-driven refreshes.
+- **Migrations** (in order): `20260722_01_query_costs_project_budgets.sql` · `20260722_02_list_items.sql`. **New env (optional)**: `BUDGET_ALERTS_DISABLED`, `LISTS_REMINDERS_DISABLED`.
+
 ### Deferrals — all completed 2026-07-20
 - ✅ AddColumnModal: "Value type" (C015) + "Reference document" (C031) selectors; saved on column config.
 - ✅ "Verify citations" (ShieldCheck) button on assistant messages → creates a Deep-verify report and opens `/verify?report=…`.

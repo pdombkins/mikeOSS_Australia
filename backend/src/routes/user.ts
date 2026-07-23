@@ -41,6 +41,8 @@ import {
     userExportFilename,
 } from "../lib/userDataExport";
 import { findProfileUserByEmail } from "../lib/userLookup";
+import { getUserUsage, getUserBudgetStatus } from "../lib/usage";
+import { frontendBaseUrl } from "../lib/urls";
 
 export const userRouter = Router();
 
@@ -92,11 +94,7 @@ function backendPublicUrl(req: {
 }
 
 function frontendUrl(path = "/account/connectors") {
-    const base = (process.env.FRONTEND_URL ?? "http://localhost:3000").replace(
-        /\/+$/,
-        "",
-    );
-    return `${base}${path}`;
+    return `${frontendBaseUrl()}${path}`;
 }
 
 function shortHash(value: string) {
@@ -595,6 +593,47 @@ userRouter.patch("/profile", requireAuth, async (req, res) => {
     const { data, error } = await loadProfile(db, userId, { apiKeyStatus });
     if (error) return void res.status(500).json({ detail: error.message });
     res.json({ ...data, apiKeyStatus });
+});
+
+// ---------------------------------------------------------------------------
+// C077 — consumption metering: personal usage + soft budget.
+// ---------------------------------------------------------------------------
+
+// GET /user/usage?months=6
+userRouter.get("/usage", requireAuth, async (req, res) => {
+    const userId = res.locals.userId as string;
+    const months = Math.min(
+        Math.max(parseInt(String(req.query.months ?? "6"), 10) || 6, 1),
+        24,
+    );
+    const db = createServerSupabase();
+    const [usage, budget] = await Promise.all([
+        getUserUsage(db, userId, months),
+        getUserBudgetStatus(db, userId),
+    ]);
+    res.json({ usage, budget });
+});
+
+// PATCH /user/budget { monthly_budget_aud: number | null }
+// Soft budget only — warnings, never a block.
+userRouter.patch("/budget", requireAuth, async (req, res) => {
+    const userId = res.locals.userId as string;
+    const raw = req.body?.monthly_budget_aud;
+    let value: number | null = null;
+    if (raw !== null && raw !== undefined && raw !== "") {
+        value = Number(raw);
+        if (!Number.isFinite(value) || value < 0 || value > 1_000_000)
+            return void res
+                .status(400)
+                .json({ detail: "monthly_budget_aud must be a non-negative number or null" });
+    }
+    const db = createServerSupabase();
+    const { error } = await db
+        .from("user_profiles")
+        .update({ monthly_budget_aud: value })
+        .eq("user_id", userId);
+    if (error) return void res.status(500).json({ detail: error.message });
+    res.json({ ok: true, monthly_budget_aud: value });
 });
 
 // PATCH /user/security/mfa-login

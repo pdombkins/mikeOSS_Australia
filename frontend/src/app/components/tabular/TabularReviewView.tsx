@@ -271,6 +271,20 @@ export function TRView({ reviewId, projectId }: Props) {
             return;
         }
 
+        // C078 — regenerating replaces any manual edit (C032); confirm first.
+        const existing = cells.find(
+            (c) => c.document_id === docId && c.column_index === colIndex,
+        );
+        if (
+            (existing?.content as { manual?: boolean } | null | undefined)
+                ?.manual &&
+            !window.confirm(
+                "This cell was manually edited. Regenerating will replace the edit with a fresh AI extraction. Continue?",
+            )
+        ) {
+            return;
+        }
+
         setCells((prev) =>
             prev.map((c) =>
                 c.document_id === docId && c.column_index === colIndex

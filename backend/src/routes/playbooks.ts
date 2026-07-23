@@ -9,6 +9,8 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
+import { parseCsvRecords } from "../lib/csv";
+import { recordAudit } from "../lib/audit";
 
 export const playbooksRouter = Router();
 
@@ -211,6 +213,83 @@ playbooksRouter.put("/:id", requireAuth, async (req, res) => {
     }
     const pb = await loadPlaybookWithRules(db, ownerId, id);
     res.json({ playbook: pb });
+  } catch (err) {
+    res.status(500).json({ detail: (err as Error).message });
+  }
+});
+
+// POST /playbooks/:id/rules/import — C079 bulk CSV import (append, ≤500 rows).
+// Body: { csv: string }
+// CSV columns: topic*, preferred, acceptable_fallback, dealbreaker,
+//              severity (low|medium|high), notes.
+playbooksRouter.post("/:id/rules/import", requireAuth, async (req, res) => {
+  const ownerId = res.locals.userId as string;
+  const id = req.params.id;
+  const db = createServerSupabase();
+
+  const { data: existing } = await db
+    .from("playbooks")
+    .select("id")
+    .eq("owner_id", ownerId)
+    .eq("id", id)
+    .maybeSingle();
+  if (!existing) return void res.status(404).json({ detail: "Playbook not found" });
+
+  const csv = typeof req.body?.csv === "string" ? req.body.csv : "";
+  if (!csv.trim()) return void res.status(400).json({ detail: "csv is required" });
+  const parsed = parseCsvRecords(csv);
+  if (!parsed || parsed.records.length === 0)
+    return void res
+      .status(400)
+      .json({ detail: "CSV has no data rows (a header row is required)" });
+  if (!parsed.headers.includes("topic"))
+    return void res.status(400).json({ detail: 'CSV must have a "topic" column' });
+  if (parsed.records.length > 500)
+    return void res
+      .status(400)
+      .json({ detail: `Too many rows (${parsed.records.length}); maximum is 500` });
+
+  const skipped: { row: number; reason: string }[] = [];
+  const candidate = parsed.records
+    .map((rec, i) => ({ rec, row: i + 1 }))
+    .filter(({ rec, row }) => {
+      if (!rec.topic) {
+        skipped.push({ row, reason: "missing topic" });
+        return false;
+      }
+      return true;
+    });
+
+  // Append after the current max position instead of replacing.
+  const { data: maxRow } = await db
+    .from("playbook_rules")
+    .select("position")
+    .eq("playbook_id", id)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const base = (maxRow?.position ?? -1) + 1;
+
+  const rules = normalizeRules(candidate.map(({ rec }) => rec)).map((r, i) => ({
+    ...r,
+    position: base + i,
+    playbook_id: id,
+    owner_id: ownerId,
+  }));
+  if (rules.length > 0) {
+    const { error: insErr } = await db.from("playbook_rules").insert(rules);
+    if (insErr) return void res.status(500).json({ detail: insErr.message });
+  }
+  recordAudit({
+    actorId: ownerId,
+    eventType: "doc_edit",
+    resourceType: "playbook",
+    resourceId: id,
+    detail: { action: "bulk_import_rules", imported: rules.length, skipped: skipped.length },
+  });
+  try {
+    const pb = await loadPlaybookWithRules(db, ownerId, id);
+    res.json({ imported: rules.length, skipped, playbook: pb });
   } catch (err) {
     res.status(500).json({ detail: (err as Error).message });
   }

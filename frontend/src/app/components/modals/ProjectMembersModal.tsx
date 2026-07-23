@@ -7,13 +7,19 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, ShieldCheck, Trash2, User, X } from "lucide-react";
+import { Loader2, ShieldCheck, Trash2, User, Users, X } from "lucide-react";
 import {
+    getProjectGroupGrants,
     getProjectMembers,
+    listGroups,
+    removeProjectGroupGrant,
     removeProjectMember,
+    upsertProjectGroupGrant,
     upsertProjectMember,
+    type ProjectGroupGrant,
     type ProjectMember,
     type ProjectMemberRole,
+    type UserGroup,
 } from "@/app/lib/mikeApi";
 
 const ASSIGNABLE_ROLES: Exclude<ProjectMemberRole, "owner">[] = [
@@ -54,16 +60,34 @@ export function ProjectMembersModal({
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Student-group grants
+    const [grants, setGrants] = useState<ProjectGroupGrant[]>([]);
+    const [allGroups, setAllGroups] = useState<UserGroup[] | null>(null);
+    const [grantGroupId, setGrantGroupId] = useState("");
+    const [grantRole, setGrantRole] = useState<
+        Exclude<ProjectMemberRole, "owner">
+    >("editor");
+
     const refresh = useCallback(async () => {
         setLoading(true);
         try {
             const data = await getProjectMembers(projectId);
             setMembers(data.members);
             setMyRole(data.role);
+            const g = await getProjectGroupGrants(projectId);
+            setGrants(g.grants);
         } catch {
             setError("Could not load members");
         } finally {
             setLoading(false);
+        }
+        // Group picker needs the admin-only group list; non-admin owners
+        // simply don't get the picker (grants still listed above).
+        try {
+            const { groups } = await listGroups();
+            setAllGroups(groups);
+        } catch {
+            setAllGroups(null);
         }
     }, [projectId]);
 
@@ -187,6 +211,142 @@ export function ProjectMembersModal({
                             </li>
                         ))}
                     </ul>
+                )}
+
+                {/* Student-group access (bulk cohort management) */}
+                {(grants.length > 0 || (canManage && allGroups)) && (
+                    <div className="mb-4">
+                        <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-gray-700">
+                            <Users className="h-3.5 w-3.5" /> Group access
+                        </p>
+                        <ul className="space-y-1.5">
+                            {grants.map((g) => (
+                                <li
+                                    key={g.id}
+                                    className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                                >
+                                    <Users className="h-4 w-4 shrink-0 text-gray-400" />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm text-gray-900">
+                                            {g.group_name ?? g.group_id}
+                                        </p>
+                                        <p className="text-[11px] text-gray-400">
+                                            {g.member_count} member
+                                            {g.member_count === 1 ? "" : "s"} —
+                                            whole group has {g.role} access
+                                        </p>
+                                    </div>
+                                    {canManage ? (
+                                        <>
+                                            <select
+                                                value={g.role}
+                                                onChange={(e) =>
+                                                    void upsertProjectGroupGrant(
+                                                        projectId,
+                                                        g.group_id,
+                                                        e.target
+                                                            .value as Exclude<
+                                                            ProjectMemberRole,
+                                                            "owner"
+                                                        >,
+                                                    ).then(refresh)
+                                                }
+                                                className="rounded border border-gray-200 px-1.5 py-1 text-xs"
+                                            >
+                                                {ASSIGNABLE_ROLES.map((r) => (
+                                                    <option key={r} value={r}>
+                                                        {r}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() =>
+                                                    void removeProjectGroupGrant(
+                                                        projectId,
+                                                        g.group_id,
+                                                    ).then(refresh)
+                                                }
+                                                className="text-gray-300 hover:text-red-600"
+                                                title="Revoke group access (walls off the whole group)"
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
+                                            {g.role}
+                                        </span>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                        {canManage &&
+                            allGroups &&
+                            allGroups.filter(
+                                (g) =>
+                                    !grants.some((x) => x.group_id === g.id),
+                            ).length > 0 && (
+                                <div className="mt-2 flex items-center gap-2">
+                                    <select
+                                        value={grantGroupId}
+                                        onChange={(e) =>
+                                            setGrantGroupId(e.target.value)
+                                        }
+                                        className="min-w-0 flex-1 rounded-md border border-gray-200 px-2 py-2 text-sm"
+                                    >
+                                        <option value="">Add a group…</option>
+                                        {allGroups
+                                            .filter(
+                                                (g) =>
+                                                    !grants.some(
+                                                        (x) =>
+                                                            x.group_id === g.id,
+                                                    ),
+                                            )
+                                            .map((g) => (
+                                                <option key={g.id} value={g.id}>
+                                                    {g.name} ({g.member_count})
+                                                </option>
+                                            ))}
+                                    </select>
+                                    <select
+                                        value={grantRole}
+                                        onChange={(e) =>
+                                            setGrantRole(
+                                                e.target.value as Exclude<
+                                                    ProjectMemberRole,
+                                                    "owner"
+                                                >,
+                                            )
+                                        }
+                                        className="rounded-md border border-gray-200 px-2 py-2 text-sm"
+                                    >
+                                        {ASSIGNABLE_ROLES.map((r) => (
+                                            <option key={r} value={r}>
+                                                {r}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        onClick={() =>
+                                            grantGroupId &&
+                                            void upsertProjectGroupGrant(
+                                                projectId,
+                                                grantGroupId,
+                                                grantRole,
+                                            ).then(() => {
+                                                setGrantGroupId("");
+                                                return refresh();
+                                            })
+                                        }
+                                        disabled={!grantGroupId || busy}
+                                        className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                                    >
+                                        Grant
+                                    </button>
+                                </div>
+                            )}
+                    </div>
                 )}
 
                 {canManage && (

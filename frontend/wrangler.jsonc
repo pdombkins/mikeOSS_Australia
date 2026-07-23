@@ -1,0 +1,21 @@
+{
+  // Cloudflare Workers deploy config for the Next.js frontend, built with
+  // @opennextjs/cloudflare. `npm run deploy` runs `opennextjs-cloudflare build`
+  // (which runs `next build` and emits `.open-next/`), then deploys this worker.
+  //
+  // NOTE: NEXT_PUBLIC_* values are inlined into the bundle at BUILD time, so they
+  // must be present in the environment when `npm run deploy` runs — setting them
+  // here as vars is NOT enough. See docs/deployment/DEPLOYMENT.md.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mike-australia",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

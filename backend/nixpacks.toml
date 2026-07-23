@@ -1,2 +1,19 @@
+# Railway / nixpacks build for the Mike backend.
+#
+# libreoffice is required for DOCX/PPTX/XLSX -> PDF conversion (document
+# display and exports). The "..." keeps nixpacks' default packages (Node).
+#
+# The server is run directly with tsx (see package.json "start"), so there is
+# no TypeScript compile step in the deploy. This is deliberate: the codebase
+# runs under tsx in development, and skipping tsc avoids failing the deploy on
+# pre-existing type-only errors (missing @google/genai type export resolution,
+# Supabase client auth typings, the S3 client config type). tsx runs the same
+# source at runtime with no behavioural difference.
 [phases.setup]
 nixPkgs = ["...", "libreoffice"]
+
+[phases.build]
+cmds = ["echo 'No compile step — the API runs via tsx (package.json start).'"]
+
+[start]
+cmd = "npm run start"

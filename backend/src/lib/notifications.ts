@@ -7,11 +7,13 @@
 
 import { createServerSupabase } from "./supabase";
 import { devLog } from "./chat/types";
+import { frontendBaseUrl } from "./urls";
 
 export type NotificationKind =
     | "agent_run"
     | "tabular_review"
     | "regwatch"
+    | "deadline"
     | "system";
 
 export type NotifyArgs = {
@@ -64,7 +66,7 @@ async function sendEmailIfEnabled(args: NotifyArgs): Promise<void> {
     const email = userData?.user?.email;
     if (!email) return;
 
-    const appUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const appUrl = frontendBaseUrl();
     const linkHtml = args.link
         ? `<p><a href="${appUrl}${args.link}">Open in Mike</a></p>`
         : "";

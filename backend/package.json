@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -28,6 +28,7 @@
     "multer": "^1.4.5-lts.2",
     "pdfjs-dist": "^4.10.38",
     "resend": "^4.5.1",
+    "tsx": "^4.19.3",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.25.76"
   },
@@ -37,7 +38,6 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.14.1",
     "prettier": "^3.8.1",
-    "tsx": "^4.19.3",
     "typescript": "^5.8.3"
   },
   "license": "AGPL-3.0-only"

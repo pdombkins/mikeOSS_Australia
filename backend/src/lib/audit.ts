@@ -31,6 +31,8 @@ export type AuditArgs = {
         | "clause"
         | "workflow"
         | "project"
+        | "list_item"
+        | "group"
         | null;
     resourceId?: string | null;
     toolName?: string | null;

@@ -45,6 +45,48 @@ import {
 } from "../lib/userLookup";
 import { notify } from "../lib/notifications";
 import { recordAudit } from "../lib/audit";
+import { calculateCostAud } from "../lib/pricing";
+
+// ---------------------------------------------------------------------------
+// C078 — tabular extraction spend. completeText() exposes no provider usage,
+// so tokens are estimated (chars/4 — same convention as kb_embedding spend)
+// and recorded to query_costs with source 'tabular'. Fire-and-forget.
+// ---------------------------------------------------------------------------
+function recordTabularSpend(
+    db: ReturnType<typeof createServerSupabase>,
+    userId: string,
+    projectId: string | null,
+    model: string,
+    promptChars: number,
+    outputChars: number,
+) {
+    void (async () => {
+        try {
+            const inputTokens = Math.ceil(promptChars / 4);
+            const outputTokens = Math.ceil(outputChars / 4);
+            if (!inputTokens && !outputTokens) return;
+            const cost = await calculateCostAud(
+                model,
+                inputTokens,
+                outputTokens,
+            );
+            await db.from("query_costs").insert({
+                user_id: userId,
+                chat_id: null,
+                project_id: projectId,
+                model: cost.model,
+                input_tokens: cost.inputTokens,
+                output_tokens: cost.outputTokens,
+                cost_usd: cost.costUsd,
+                cost_aud: cost.costAud,
+                aud_rate: cost.audRate,
+                source: "tabular",
+            });
+        } catch (err) {
+            console.error("[tabular] failed to record spend:", err);
+        }
+    })();
+}
 
 function formatPromptSuffix(format?: string, tags?: string[]): string {
     switch (format) {
@@ -646,15 +688,9 @@ tabularRouter.post(
         if (!access.ok)
             return void res.status(404).json({ detail: "Review not found" });
 
-        const column = (
-            review.columns_config as {
-                index: number;
-                name: string;
-                prompt: string;
-                format?: string;
-                tags?: string[];
-            }[]
-        ).find((c) => c.index === column_index);
+        const column = (review.columns_config as Column[]).find(
+            (c) => c.index === column_index,
+        );
         if (!column)
             return void res.status(400).json({ detail: "Column not found" });
 
@@ -687,6 +723,22 @@ tabularRouter.post(
             });
         }
 
+        // C078 — capture prior content for provenance before regenerating.
+        const { data: priorCell } = await db
+            .from("tabular_cells")
+            .select("content")
+            .eq("review_id", reviewId)
+            .eq("document_id", document_id)
+            .eq("column_index", column_index)
+            .maybeSingle();
+        let prior: Record<string, unknown> = {};
+        try {
+            if (priorCell?.content)
+                prior = JSON.parse(priorCell.content as string);
+        } catch {
+            /* ignore */
+        }
+
         await db
             .from("tabular_cells")
             .update({ status: "generating", content: null })
@@ -712,6 +764,44 @@ tabularRouter.post(
             }
         }
 
+        // C078/C031 — fixed reference document context, same as /generate.
+        let reference: { name: string; text: string } | undefined;
+        if (column.reference_document_id) {
+            const allowedRef = await filterAccessibleDocumentIds(
+                [column.reference_document_id],
+                userId,
+                userEmail,
+                db,
+            );
+            if (allowedRef.length > 0) {
+                const refActive = await loadActiveVersion(
+                    column.reference_document_id,
+                    db,
+                );
+                if (refActive) {
+                    try {
+                        const buf = await downloadFile(refActive.storage_path);
+                        if (buf) {
+                            reference = {
+                                name:
+                                    refActive.filename?.trim() ||
+                                    "Reference document",
+                                text: await extractDocumentMarkdown(
+                                    buf,
+                                    refActive.file_type,
+                                ),
+                            };
+                        }
+                    } catch (err) {
+                        console.error(
+                            `[regenerate-cell] reference doc extraction failed ${column.reference_document_id}`,
+                            safeErrorLog(err),
+                        );
+                    }
+                }
+            }
+        }
+
         const result = await queryTabularCell(
             tabular_model,
             docActive?.filename?.trim() || "Untitled document",
@@ -720,6 +810,8 @@ tabularRouter.post(
             column.format,
             column.tags,
             api_keys,
+            column.type,
+            reference,
         );
 
         if (!result) {
@@ -732,14 +824,47 @@ tabularRouter.post(
             return void res.status(500).json({ detail: "Generation failed" });
         }
 
+        // C078 — provenance: the value is AI-authored again (any manual edit
+        // is superseded, its summary retained), stamped with who refreshed it.
+        const content = {
+            ...result,
+            regenerated_by: userId,
+            regenerated_at: new Date().toISOString(),
+            ...(prior.manual
+                ? { superseded_manual_summary: prior.summary ?? null }
+                : {}),
+        };
+
         await db
             .from("tabular_cells")
-            .update({ content: JSON.stringify(result), status: "done" })
+            .update({ content: JSON.stringify(content), status: "done" })
             .eq("review_id", reviewId)
             .eq("document_id", document_id)
             .eq("column_index", column_index);
 
-        res.json(result);
+        recordAudit({
+            actorId: userId,
+            eventType: "doc_edit",
+            projectId: (review.project_id as string | null) ?? null,
+            resourceType: "tabular_review",
+            resourceId: reviewId,
+            detail: {
+                action: "cell_regenerate",
+                documentId: document_id,
+                columnIndex: column_index,
+                supersededManualEdit: !!prior.manual,
+            },
+        });
+        recordTabularSpend(
+            db,
+            userId,
+            (review.project_id as string | null) ?? null,
+            tabular_model,
+            markdown.length + column.prompt.length + (reference?.text.length ?? 0),
+            JSON.stringify(result).length,
+        );
+
+        res.json(content);
     },
 );
 
@@ -956,6 +1081,7 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
 
                 // Single LLM call for all columns, streaming one JSON line per column
                 const receivedColumns = new Set<number>();
+                let outputChars = 0;
                 try {
                     await queryTabularAllColumns(
                         tabular_model,
@@ -964,6 +1090,7 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
                         columnsToProcess,
                         async (columnIndex, result) => {
                             receivedColumns.add(columnIndex);
+                            outputChars += JSON.stringify(result).length;
                             await db
                                 .from("tabular_cells")
                                 .update({
@@ -984,6 +1111,27 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
                     console.error(
                         `[tabular/generate] queryTabularAllColumns error doc=${docId}`,
                         safeErrorLog(err),
+                    );
+                }
+
+                // C078 — record estimated extraction spend for this document.
+                if (receivedColumns.size > 0) {
+                    const refChars = [...referenceTexts.values()].reduce(
+                        (n, r) => n + Math.min(r.text.length, 30_000),
+                        0,
+                    );
+                    recordTabularSpend(
+                        db,
+                        userId,
+                        (review.project_id as string | null) ?? null,
+                        tabular_model,
+                        Math.min(markdown.length, 120_000) +
+                            refChars +
+                            columnsToProcess.reduce(
+                                (n, c) => n + c.prompt.length,
+                                0,
+                            ),
+                        outputChars,
                     );
                 }
 
@@ -1588,9 +1736,17 @@ async function queryTabularCell(
     format?: string,
     tags?: string[],
     apiKeys?: import("../lib/llm").UserApiKeys,
+    columnType?: string,
+    reference?: { name: string; text: string },
 ) {
     const suffix = formatPromptSuffix(format as never, tags);
-    const fullPrompt = `${columnPrompt}${suffix} If not found, state "Not Found". Leave all reasoning and explanation in the "reasoning" field only.`;
+    // C078 — parity with /generate: typed-column hints (C015) and fixed
+    // reference-document context (C031) apply to single-cell refresh too.
+    const typeHint = columnType ? (COLUMN_TYPE_HINTS[columnType] ?? "") : "";
+    const refHint = reference
+        ? " Evaluate this document AGAINST the reference document provided below."
+        : "";
+    const fullPrompt = `${columnPrompt}${suffix} If not found, state "Not Found".${typeHint ? ` ${typeHint}` : ""}${refHint} Leave all reasoning and explanation in the "reasoning" field only.`;
 
     const EXTRACTION_SYSTEM = `You are a legal document analyst. Return ONLY valid JSON:
 {"summary": string, "flag": "green"|"grey"|"yellow"|"red", "reasoning": string}
@@ -1601,10 +1757,13 @@ The "summary" field must contain only the extracted value with inline citations 
 
     let raw: string;
     try {
+        const referenceBlock = reference
+            ? `\n\n---\nReference document — "${reference.name}":\n${reference.text.slice(0, 30_000)}`
+            : "";
         raw = await completeText({
             model,
             systemPrompt: EXTRACTION_SYSTEM,
-            user: `Document: ${filename}\n\n${documentText.slice(0, 120_000)}\n\n---\nInstruction: ${fullPrompt}`,
+            user: `Document: ${filename}\n\n${documentText.slice(0, 120_000)}\n\n---\nInstruction: ${fullPrompt}${referenceBlock}`,
             maxTokens: 2048,
             apiKeys,
         });
