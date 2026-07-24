@@ -700,8 +700,8 @@ export function ProjectsOverview() {
                                         toggleOne(project.id)
                                     }
                                 >
-                                    <ClosedProjectSvgIcon className="mr-2 h-4 w-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
+                                    <ClosedProjectSvgIcon className="mr-2 h-4 w-4 shrink-0 self-start mt-0.5" />
+                                    <span className="min-w-0 flex-1 whitespace-normal break-words py-1.5 text-sm text-gray-800">
                                         {project.name}
                                     </span>
                                 </TablePrimaryCell>

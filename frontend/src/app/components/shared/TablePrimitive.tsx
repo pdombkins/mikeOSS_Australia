@@ -280,7 +280,11 @@ export function TableRow({
         <>
             <div
                 className={cn(
-                    "group flex h-10 min-w-max items-center pr-3 transition-colors",
+                    // min-h (not h-10) so rows can grow when a cell's content
+                    // wraps (e.g. project names, see ProjectsOverview) —
+                    // rows without wrapping content still render at the
+                    // same 40px height as before.
+                    "group flex min-h-10 min-w-max items-center pr-3 transition-colors",
                     interactive && "cursor-pointer",
                     interactive &&
                         !selected &&
