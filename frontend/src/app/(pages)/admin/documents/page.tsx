@@ -217,7 +217,7 @@ export default function AdminDocumentsPage() {
                                             className="border-b border-gray-100 bg-white px-3 py-3 text-center font-medium text-gray-500"
                                         >
                                             <span
-                                                className="mx-auto block max-w-[120px] truncate"
+                                                className="mx-auto block w-32 whitespace-normal break-words leading-tight"
                                                 title={p.name}
                                             >
                                                 {p.name}

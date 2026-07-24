@@ -36,41 +36,64 @@ import type { Document } from "@/app/components/shared/types";
 
 const ROLES = ["intake", "research", "drafting", "review", "verify"] as const;
 
-// Per-role reference (mirrors backend ROLE_TOOLSETS). Makes clear which roles
-// draw on playbooks / knowledge / documents before a run is approved.
+// Per-role reference (mirrors backend ROLE_TOOLSETS). Lists the specific
+// sources each role can draw on, so it's clear what an agent may consult
+// before a run is approved. `playbooks` flags roles that can use playbooks
+// (drives the per-step "sources used" note).
 const ROLE_CAPABILITIES: Record<
     (typeof ROLES)[number],
-    { blurb: string; playbooks: boolean; knowledge: boolean; documents: boolean }
+    { blurb: string; playbooks: boolean; sources: string[] }
 > = {
     intake: {
-        blurb: "Characterises the matter, parties, jurisdiction and inputs.",
+        blurb: "Characterises the matter, parties, jurisdiction and inputs (read-only).",
         playbooks: false,
-        knowledge: false,
-        documents: true,
+        sources: ["Project & attached documents", "Matter list items"],
     },
     research: {
-        blurb: "Researches via the knowledge base, clauses, playbooks and Jade.io.",
+        blurb: "Researches the question across internal and Australian sources.",
         playbooks: true,
-        knowledge: true,
-        documents: true,
+        sources: [
+            "Knowledge base",
+            "Saved clauses",
+            "Playbooks",
+            "Jade.io — case law",
+            "Jade.io — legislation",
+            "Jade.io — citation validation",
+            "Project documents",
+            "Tabular review data",
+        ],
     },
     drafting: {
-        blurb: "Produces or edits documents, consulting playbooks and clauses.",
+        blurb: "Produces or edits documents, grounded in your precedents.",
         playbooks: true,
-        knowledge: true,
-        documents: true,
+        sources: [
+            "Knowledge base",
+            "Saved clauses",
+            "Playbooks",
+            "Project documents",
+            "AGLC4 citation formatting",
+        ],
     },
     review: {
-        blurb: "Reviews documents against your playbooks and AU law.",
+        blurb: "Reviews a document against your playbooks and AU law.",
         playbooks: true,
-        knowledge: true,
-        documents: true,
+        sources: [
+            "Playbooks (reviews the document against them)",
+            "Knowledge base",
+            "Saved clauses",
+            "Project documents",
+            "Jade.io — citation validation",
+        ],
     },
     verify: {
-        blurb: "Validates citations and checks they support assertions.",
+        blurb: "Validates citations and checks they support the assertions made.",
         playbooks: false,
-        knowledge: false,
-        documents: true,
+        sources: [
+            "Project documents",
+            "Jade.io — citation validation",
+            "Jade.io — document fetch",
+            "Assertion checks (Jade.io / AustLII)",
+        ],
     },
 };
 
@@ -336,7 +359,7 @@ function AgentsPageInner() {
     }, [detail]);
 
     return (
-        <div className="mx-auto flex w-full max-w-6xl gap-6 px-4 py-8">
+        <div className="mx-auto flex h-full w-full max-w-6xl items-start gap-6 overflow-y-auto px-4 py-8">
             {/* Left: create + run list */}
             <div className="w-80 shrink-0">
                 <h1 className="mb-3 flex items-center gap-2 text-2xl font-medium font-serif text-gray-900">
@@ -446,22 +469,30 @@ function AgentsPageInner() {
                                         <p className="mt-0.5 text-gray-600">
                                             {cap.blurb}
                                         </p>
+                                        <p className="mt-1 font-medium text-gray-500">
+                                            Sources it can refer to:
+                                        </p>
                                         <div className="mt-1 flex flex-wrap gap-1">
-                                            {cap.playbooks && (
-                                                <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-indigo-700">
-                                                    Playbooks
+                                            {cap.sources.map((src) => (
+                                                <span
+                                                    key={src}
+                                                    className={`rounded-full px-1.5 py-0.5 ${
+                                                        src.startsWith("Playbook")
+                                                            ? "bg-indigo-50 text-indigo-700"
+                                                            : src.startsWith(
+                                                                    "Knowledge",
+                                                                )
+                                                              ? "bg-emerald-50 text-emerald-700"
+                                                              : src.startsWith(
+                                                                      "Jade",
+                                                                  )
+                                                                ? "bg-amber-50 text-amber-700"
+                                                                : "bg-gray-100 text-gray-600"
+                                                    }`}
+                                                >
+                                                    {src}
                                                 </span>
-                                            )}
-                                            {cap.knowledge && (
-                                                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
-                                                    Knowledge base
-                                                </span>
-                                            )}
-                                            {cap.documents && (
-                                                <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-gray-600">
-                                                    Documents
-                                                </span>
-                                            )}
+                                            ))}
                                         </div>
                                     </li>
                                 );
