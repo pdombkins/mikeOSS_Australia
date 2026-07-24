@@ -286,7 +286,7 @@ export function DocTable({
     const [sort, setSort] = useState<{
         key: DocumentSortKey;
         direction: TableSortDirection;
-    } | null>(null);
+    } | null>({ key: "name", direction: "asc" });
     const documentUploadInputRef = useRef<HTMLInputElement>(null);
     const loadingRef = useRef(loading);
     const renderAddDocumentsModalRef = useRef(renderAddDocumentsModal);

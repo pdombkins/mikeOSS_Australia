@@ -79,7 +79,7 @@ export function ProjectAssistantTable({
     const [sort, setSort] = useState<{
         key: ProjectChatSortKey;
         direction: TableSortDirection;
-    } | null>(null);
+    } | null>({ key: "name", direction: "asc" });
 
     function clearSelection() {
         setSelectedChatIds([]);

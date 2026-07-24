@@ -69,7 +69,7 @@ export function ProjectReviewsTable({
     const [sort, setSort] = useState<{
         key: ProjectReviewSortKey;
         direction: TableSortDirection;
-    } | null>(null);
+    } | null>({ key: "name", direction: "asc" });
 
     function clearSelection() {
         setSelectedReviewIds([]);

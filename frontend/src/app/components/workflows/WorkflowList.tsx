@@ -95,7 +95,7 @@ export function WorkflowList() {
     const [sort, setSort] = useState<{
         key: WorkflowSortKey;
         direction: TableSortDirection;
-    } | null>(null);
+    } | null>({ key: "name", direction: "asc" });
     const [search, setSearch] = useState("");
     const actionsRef = useRef<HTMLDivElement>(null);
     const previewEmptyStates = searchParams.get("emptyStates") === "1";

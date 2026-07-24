@@ -79,7 +79,7 @@ export default function TabularReviewsPage() {
     const [sort, setSort] = useState<{
         key: ReviewSortKey;
         direction: TableSortDirection;
-    } | null>(null);
+    } | null>({ key: "name", direction: "asc" });
     const [search, setSearch] = useState("");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [actionsOpen, setActionsOpen] = useState(false);

@@ -63,7 +63,6 @@ function getProjectOwnerLabel(project: Project, currentUserId?: string | null) {
 type ProjectFilter = "all" | "mine" | "shared-with-me";
 type ProjectSortKey =
     | "name"
-    | "cm"
     | "files"
     | "chats"
     | "reviews"
@@ -86,7 +85,7 @@ export function ProjectsOverview() {
     const [sort, setSort] = useState<{
         key: ProjectSortKey;
         direction: TableSortDirection;
-    } | null>(null);
+    } | null>({ key: "name", direction: "asc" });
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [actionsOpen, setActionsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -214,13 +213,6 @@ export function ProjectsOverview() {
         return [...rows].sort((a, b) => {
             const multiplier = sort.direction === "asc" ? 1 : -1;
 
-            if (sort.key === "cm") {
-                return (
-                    (a.cm_number ?? "").localeCompare(b.cm_number ?? "") *
-                    multiplier
-                );
-            }
-
             if (sort.key === "files") {
                 return (
                     ((a.document_count ?? 0) - (b.document_count ?? 0)) *
@@ -310,7 +302,6 @@ export function ProjectsOverview() {
         { id: "shared-with-me", label: "Shared with me" },
     ];
     const nameSortDirection = sort?.key === "name" ? sort.direction : null;
-    const cmSortDirection = sort?.key === "cm" ? sort.direction : null;
     const filesSortDirection = sort?.key === "files" ? sort.direction : null;
     const chatsSortDirection = sort?.key === "chats" ? sort.direction : null;
     const reviewsSortDirection =
@@ -326,16 +317,6 @@ export function ProjectsOverview() {
             align="right"
             options={SORT_OPTIONS}
             onChange={(direction) => handleSortChange("name", direction)}
-        />
-    );
-    const cmFilterButton = (
-        <TableFilters
-            label="Sort by CM"
-            value={cmSortDirection}
-            allLabel="Default Order"
-            widthClassName="w-40"
-            options={SORT_OPTIONS}
-            onChange={(direction) => handleSortChange("cm", direction)}
         />
     );
     const practiceFilterButton = (
@@ -531,13 +512,7 @@ export function ProjectsOverview() {
                             <span className="mr-1">Name</span>
                             {!loading && nameFilterButton}
                         </TableStickyCell>
-                        <TableHeaderCell className="ml-auto w-32">
-                            <div className="flex items-center gap-1">
-                                <span>CM</span>
-                                {!loading && cmFilterButton}
-                            </div>
-                        </TableHeaderCell>
-                        <TableHeaderCell className="w-36">
+                        <TableHeaderCell className="ml-auto w-36">
                             <div className="flex items-center gap-1">
                                 <span>Practice</span>
                                 {!loading && practiceFilterButton}
@@ -706,14 +681,7 @@ export function ProjectsOverview() {
                                     </span>
                                 </TablePrimaryCell>
 
-                                <TableCell className="ml-auto w-32">
-                                    {project.cm_number ?? (
-                                        <span className="text-gray-300">
-                                            —
-                                        </span>
-                                    )}
-                                </TableCell>
-                                <TableCell className="w-36">
+                                <TableCell className="ml-auto w-36">
                                     {project.practice ?? (
                                         <span className="text-gray-300">
                                             —
