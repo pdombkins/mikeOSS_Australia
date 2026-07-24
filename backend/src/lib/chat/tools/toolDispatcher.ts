@@ -69,6 +69,12 @@ import {
   storageKey,
   uploadFile,
 } from "../../storage";
+
+/** Which knowledge sources (playbooks + KB) a turn/step actually consulted. */
+export type KnowledgeSourceEvent =
+  | { type: "playbook_listed"; names: string[] }
+  | { type: "playbook_reviewed"; name: string; filename?: string | null }
+  | { type: "knowledge_search"; query: string; hits: number };
 import { convertedPdfKey } from "../../convert";
 import { contentTypeForDocumentType } from "../../documentTypes";
 import { buildDownloadUrl } from "../../downloadTokens";
@@ -497,8 +503,11 @@ export async function runToolCalls(
   courtlistenerEvents: CourtlistenerToolEvent[];
   caseCitationEvents: CaseCitationEvent[];
   mcpEvents: McpToolEvent[];
+  knowledgeEvents: KnowledgeSourceEvent[];
 }> {
   const toolResults: unknown[] = [];
+  // Knowledge-source transparency (playbooks + KB) surfaced per turn/step.
+  const knowledgeEvents: KnowledgeSourceEvent[] = [];
   const docsRead: { filename: string; document_id?: string }[] = [];
   const docsFound: {
     filename: string;
@@ -686,6 +695,11 @@ export async function runToolCalls(
           apiKeys,
         });
         content = formatKnowledgeForModel(kbQuery, hits);
+        knowledgeEvents.push({
+          type: "knowledge_search",
+          query: kbQuery,
+          hits: Array.isArray(hits) ? hits.length : 0,
+        });
       } catch (err) {
         content = `KNOWLEDGE BASE: search failed \u2014 ${(err as Error).message}`;
       }
@@ -706,6 +720,10 @@ export async function runToolCalls(
               )
               .join("\n")
           : "No playbooks have been defined yet.";
+        knowledgeEvents.push({
+          type: "playbook_listed",
+          names: pbs.map((p) => p.name),
+        });
       } catch (err) {
         content = `Could not list playbooks \u2014 ${(err as Error).message}`;
       }
@@ -734,8 +752,20 @@ export async function runToolCalls(
               docIndex,
               db,
             );
-            content += `\n\n== DOCUMENT UNDER REVIEW (${docStore.get(docId)?.filename ?? rawDocId}) ==\n${docText}`;
+            const reviewedFilename =
+              docStore.get(docId)?.filename ?? rawDocId;
+            content += `\n\n== DOCUMENT UNDER REVIEW (${reviewedFilename}) ==\n${docText}`;
+            knowledgeEvents.push({
+              type: "playbook_reviewed",
+              name: pb.name,
+              filename: reviewedFilename,
+            });
           } else {
+            knowledgeEvents.push({
+              type: "playbook_reviewed",
+              name: pb.name,
+              filename: null,
+            });
             content +=
               "\n\nReview the document already provided in this conversation against the positions above. For each relevant clause state: the playbook topic, what the document says, whether it MEETS / is a FALLBACK / is a DEALBREAKER deviation, the severity, and a suggested redline.";
           }
@@ -2506,5 +2536,6 @@ export async function runToolCalls(
     courtlistenerEvents,
     caseCitationEvents,
     mcpEvents,
+    knowledgeEvents,
   };
 }

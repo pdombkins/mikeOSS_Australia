@@ -62,6 +62,9 @@ export interface Document {
   active_version_number?: number | null;
   /** Legacy: max version_number across assistant_edit rows, null if doc is unedited. */
   latest_version_number?: number | null;
+  /** True when this document is shown in a project via a central link
+   *  (document_project_links) rather than owned by the project. Read-only. */
+  is_linked?: boolean;
 }
 
 export interface StructureNode {

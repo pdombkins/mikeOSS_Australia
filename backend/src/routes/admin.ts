@@ -22,6 +22,8 @@ import {
   getJadeAccessApproved,
   setAppSetting,
 } from "../lib/appSettings";
+import { attachActiveVersionPaths } from "../lib/documentVersions";
+import { linksByDocument, setDocumentLinks } from "../lib/documentLinks";
 
 export const adminRouter = Router();
 
@@ -417,6 +419,104 @@ adminRouter.get("/knowledge", async (_req, res) => {
       owner_email: emailById.get(c.owner_id as string) ?? c.owner_id,
     })),
   });
+});
+
+// ---------------------------------------------------------------------------
+// Central document management — link the admin's Library documents to any
+// number of projects (live references, not copies). Powers the Admin →
+// Documents matrix (documents × projects checkboxes).
+//
+// GET /admin/document-library
+//   → { documents: [{ id, filename, file_type, library_kind, created_at,
+//                      linked_project_ids }], projects: [{ id, name }] }
+// PUT /admin/documents/:documentId/links { project_ids: [] }
+//   → replaces the full set of project links for one document.
+// ---------------------------------------------------------------------------
+adminRouter.get("/document-library", async (req, res) => {
+  const db = createServerSupabase();
+  const adminId = res.locals.userId as string;
+
+  const [{ data: rawDocs }, { data: projects }] = await Promise.all([
+    db
+      .from("documents")
+      .select("id, user_id, library_kind, created_at")
+      .eq("user_id", adminId)
+      .is("project_id", null)
+      .order("created_at", { ascending: false }),
+    db
+      .from("projects")
+      .select("id, name")
+      .order("name", { ascending: true }),
+  ]);
+
+  const docs = (rawDocs ?? []) as unknown as {
+    id: string;
+    library_kind?: string | null;
+    created_at?: string | null;
+    filename?: string | null;
+    file_type?: string | null;
+  }[];
+  await attachActiveVersionPaths(db, docs);
+  const linkMap = await linksByDocument(
+    db,
+    docs.map((d) => d.id),
+  );
+
+  res.json({
+    documents: docs.map((d) => ({
+      id: d.id,
+      filename: d.filename ?? "Untitled document",
+      file_type: d.file_type ?? null,
+      library_kind: d.library_kind ?? "file",
+      created_at: d.created_at ?? null,
+      linked_project_ids: linkMap.get(d.id) ?? [],
+    })),
+    projects: (projects ?? []).map((p: { id: string; name: string }) => ({
+      id: p.id,
+      name: p.name,
+    })),
+  });
+});
+
+adminRouter.put("/documents/:documentId/links", async (req, res) => {
+  const db = createServerSupabase();
+  const adminId = res.locals.userId as string;
+  const { documentId } = req.params;
+
+  // Only allow linking the admin's own Library documents.
+  const { data: doc } = await db
+    .from("documents")
+    .select("id, user_id")
+    .eq("id", documentId)
+    .maybeSingle();
+  if (!doc || (doc as { user_id: string }).user_id !== adminId) {
+    return void res.status(404).json({ detail: "Document not found" });
+  }
+
+  const raw: unknown[] = Array.isArray(req.body?.project_ids)
+    ? (req.body.project_ids as unknown[])
+    : [];
+  const projectIds: string[] = [
+    ...new Set(
+      raw.filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  ];
+
+  // Guard against linking to non-existent projects.
+  let validIds: string[] = projectIds;
+  if (projectIds.length > 0) {
+    const { data: existing } = await db
+      .from("projects")
+      .select("id")
+      .in("id", projectIds);
+    const existingSet = new Set<string>(
+      (existing ?? []).map((p: { id: string }) => p.id),
+    );
+    validIds = projectIds.filter((id: string) => existingSet.has(id));
+  }
+
+  await setDocumentLinks(db, documentId, validIds, adminId);
+  res.json({ ok: true, project_ids: validIds });
 });
 
 // ---------------------------------------------------------------------------

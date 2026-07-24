@@ -336,6 +336,41 @@ export async function adminUpdateSettings(
     });
 }
 
+// ── Central document management (Admin → Documents matrix) ────────────────
+export interface AdminDocLibraryEntry {
+    id: string;
+    filename: string;
+    file_type: string | null;
+    library_kind: string;
+    created_at: string | null;
+    linked_project_ids: string[];
+}
+
+export interface AdminDocLibraryProject {
+    id: string;
+    name: string;
+}
+
+export interface AdminDocumentLibrary {
+    documents: AdminDocLibraryEntry[];
+    projects: AdminDocLibraryProject[];
+}
+
+export async function adminGetDocumentLibrary(): Promise<AdminDocumentLibrary> {
+    return apiRequest<AdminDocumentLibrary>("/admin/document-library");
+}
+
+export async function adminSetDocumentLinks(
+    documentId: string,
+    projectIds: string[],
+): Promise<{ ok: boolean; project_ids: string[] }> {
+    return apiRequest(`/admin/documents/${documentId}/links`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_ids: projectIds }),
+    });
+}
+
 export interface UserLookupResult {
     exists: boolean;
     email: string;
@@ -1659,6 +1694,12 @@ export type AgentRunSummary = {
     finished_at: string | null;
 };
 
+export type AgentStepSources = {
+    playbooks: string[];
+    documents: string[];
+    knowledge_searches: string[];
+};
+
 export type AgentStepDetail = {
     position: number;
     depends_on: number[];
@@ -1668,6 +1709,8 @@ export type AgentStepDetail = {
     output_text: string | null;
     started_at: string | null;
     finished_at: string | null;
+    /** Knowledge sources this step actually consulted (from tool events). */
+    sources?: AgentStepSources;
 };
 
 export async function createAgentRun(input: {

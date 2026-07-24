@@ -14,6 +14,7 @@ import {
 } from "../lib/storage";
 import { docxToPdf, convertedPdfKey } from "../lib/convert";
 import { checkProjectAccess } from "../lib/access";
+import { loadLinkedDocumentsForProject } from "../lib/documentLinks";
 import { can, isProjectRole } from "../lib/rbac";
 import { getProjectUsage } from "../lib/usage";
 import { recordAudit } from "../lib/audit";
@@ -115,6 +116,38 @@ async function attachDocumentOwnerLabels(
     doc.owner_email = null;
     doc.owner_display_name = displayNameByUserId.get(doc.user_id) ?? null;
   }
+}
+
+/**
+ * Load a project's documents = its own documents plus any Library/other
+ * documents linked into it via document_project_links (central document
+ * management). Linked rows carry is_linked:true so the UI can badge them
+ * read-only. Ordering: own docs first (by created_at), then linked docs.
+ */
+async function loadProjectDocuments(
+  db: ReturnType<typeof createServerSupabase>,
+  projectId: string,
+  opts: { withLatestVersionNumbers?: boolean } = {},
+) {
+  const [{ data: own }, linked] = await Promise.all([
+    db
+      .from("documents")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true }),
+    loadLinkedDocumentsForProject(db, projectId),
+  ]);
+  const docsTyped = [...(own ?? []), ...linked] as unknown as {
+    id: string;
+    user_id?: string | null;
+    current_version_id?: string | null;
+  }[];
+  if (opts.withLatestVersionNumbers) {
+    await attachLatestVersionNumbers(db, docsTyped);
+  }
+  await attachActiveVersionPaths(db, docsTyped);
+  await attachDocumentOwnerLabels(db, docsTyped);
+  return docsTyped;
 }
 
 async function attachChatCreatorLabels(
@@ -245,18 +278,10 @@ projectsRouter.get("/:projectId", requireAuth, async (req, res) => {
   if (!canAccess)
     return void res.status(404).json({ detail: "Project not found" });
 
-  const [{ data: docs }, { data: folderData }] = await Promise.all([
-    db.from("documents").select("*").eq("project_id", projectId).order("created_at", { ascending: true }),
+  const [docsTyped, { data: folderData }] = await Promise.all([
+    loadProjectDocuments(db, projectId, { withLatestVersionNumbers: true }),
     db.from("project_subfolders").select("*").eq("project_id", projectId).order("created_at", { ascending: true }),
   ]);
-  const docsTyped = (docs ?? []) as unknown as {
-    id: string;
-    user_id?: string | null;
-    current_version_id?: string | null;
-  }[];
-  await attachLatestVersionNumbers(db, docsTyped);
-  await attachActiveVersionPaths(db, docsTyped);
-  await attachDocumentOwnerLabels(db, docsTyped);
   res.json({
     ...project,
     is_owner: project.user_id === userId,
@@ -365,17 +390,10 @@ projectsRouter.patch("/:projectId", requireAuth, async (req, res) => {
   if (error || !data)
     return void res.status(404).json({ detail: "Project not found" });
 
-  const [{ data: docs }, { data: folderData }] = await Promise.all([
-    db.from("documents").select("*").eq("project_id", projectId).order("created_at", { ascending: true }),
+  const [docsTyped, { data: folderData }] = await Promise.all([
+    loadProjectDocuments(db, projectId),
     db.from("project_subfolders").select("*").eq("project_id", projectId).order("created_at", { ascending: true }),
   ]);
-  const docsTyped = (docs ?? []) as unknown as {
-    id: string;
-    user_id?: string | null;
-    current_version_id?: string | null;
-  }[];
-  await attachActiveVersionPaths(db, docsTyped);
-  await attachDocumentOwnerLabels(db, docsTyped);
   res.json({ ...data, documents: docsTyped, folders: folderData ?? [] });
 });
 
@@ -420,16 +438,7 @@ projectsRouter.get("/:projectId/documents", requireAuth, async (req, res) => {
   if (!access.ok)
     return void res.status(404).json({ detail: "Project not found" });
 
-  const { data: docs } = await db
-    .from("documents")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: true });
-  const docsTyped = (docs ?? []) as unknown as {
-    id: string;
-    current_version_id?: string | null;
-  }[];
-  await attachActiveVersionPaths(db, docsTyped);
+  const docsTyped = await loadProjectDocuments(db, projectId);
   res.json(docsTyped);
 });
 

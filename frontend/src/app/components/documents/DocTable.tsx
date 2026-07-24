@@ -17,6 +17,7 @@ import {
     AlertCircle,
     ChevronDown,
     ChevronRight,
+    Link2,
 } from "lucide-react";
 import {
     deleteDocument,
@@ -1050,6 +1051,9 @@ export function DocTable({
     }
 
     function isSharedDocument(doc: Document | null | undefined): boolean {
+        // Centrally-linked docs are read-only in a project (managed in Admin →
+        // Documents), as are docs owned by another user in a shared project.
+        if (doc?.is_linked) return true;
         return !!(doc?.user_id && user?.id && doc.user_id !== user.id);
     }
 
@@ -1509,6 +1513,17 @@ export function DocTable({
                                                     {isProcessing ||
                                                     isUploadingVersion ? (
                                                         <Loader2 className="mr-4 h-2.5 w-2.5 animate-spin text-gray-400 shrink-0" />
+                                                    ) : doc.is_linked ? (
+                                                        // Centrally-linked docs are read-only here — no
+                                                        // selection so they can't be bulk-deleted (they
+                                                        // belong to the Library, managed in Admin →
+                                                        // Documents).
+                                                        <span
+                                                            title="Shared centrally — manage in Admin → Documents"
+                                                            className="mr-4 flex h-2.5 w-2.5 shrink-0 items-center justify-center"
+                                                        >
+                                                            <Link2 className="h-3 w-3 text-indigo-400" />
+                                                        </span>
                                                     ) : (
                                                         <input
                                                             type="checkbox"
@@ -1603,6 +1618,14 @@ export function DocTable({
                                                     ) : (
                                                         <span className="text-sm text-gray-800 truncate">
                                                             {docName}
+                                                        </span>
+                                                    )}
+                                                    {doc.is_linked && (
+                                                        <span
+                                                            title="Shared centrally from the Library — managed in Admin → Documents"
+                                                            className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-600/20"
+                                                        >
+                                                            Shared
                                                         </span>
                                                     )}
                                                 </div>

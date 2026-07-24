@@ -238,6 +238,7 @@ export default function AdminPage() {
                         ["/admin/analytics", "Command Center", "Adoption analytics, spend, cohorts"],
                         ["/admin/audit", "Audit trail", "Every tool call and access event"],
                         ["/admin/knowledge", "Workspace knowledge", "All playbooks, KB docs, clauses"],
+                        ["/admin/documents", "Documents", "Share Library documents to projects centrally"],
                         ["/admin/groups", "Student groups", "Bulk-invite a class, manage access as a group"],
                     ].map(([href, title, desc]) => (
                         <a

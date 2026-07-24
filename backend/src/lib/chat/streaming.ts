@@ -110,6 +110,12 @@ export type AssistantEvent =
   | CaseCitationEvent
   | CourtlistenerToolEvent
   | McpToolEvent
+  // Knowledge-source transparency: which playbooks / knowledge an agent or
+  // assistant turn actually consulted. Persisted in agent_steps.output.events
+  // so the Agents UI can show what each step relied on.
+  | { type: "playbook_listed"; names: string[] }
+  | { type: "playbook_reviewed"; name: string; filename?: string | null }
+  | { type: "knowledge_search"; query: string; hits: number }
   | { type: "case_opinions"; cluster_id: number; case: unknown }
   | { type: "content"; text: string }
   | { type: "error"; message: string };
@@ -460,6 +466,7 @@ export async function runLLMStream(params: {
           courtlistenerEvents,
           caseCitationEvents,
           mcpEvents,
+          knowledgeEvents,
         } = await runToolCalls(
           toolCalls,
           docStore,
@@ -538,6 +545,9 @@ export async function runLLMStream(params: {
           events.push(event);
         }
         for (const event of caseCitationEvents) {
+          events.push(event);
+        }
+        for (const event of knowledgeEvents) {
           events.push(event);
         }
 

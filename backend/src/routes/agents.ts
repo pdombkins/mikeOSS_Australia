@@ -192,12 +192,57 @@ agentsRouter.get("/:id", requireAuth, async (req, res) => {
   const { data: steps } = await db
     .from("agent_steps")
     .select(
-      "position, depends_on, role, instruction, status, output_text, started_at, finished_at",
+      "position, depends_on, role, instruction, status, output_text, output, started_at, finished_at",
     )
     .eq("run_id", req.params.id)
     .order("position", { ascending: true });
-  res.json({ run, steps: steps ?? [] });
+  // Summarise which knowledge sources each step actually used, from the
+  // persisted tool events — so the UI can show "what this agent relied on".
+  const withSources = (steps ?? []).map((s) => {
+    const { output, ...rest } = s as Record<string, unknown>;
+    return { ...rest, sources: summariseStepSources(output) };
+  });
+  res.json({ run, steps: withSources });
 });
+
+/** Compact "sources used" summary derived from a step's persisted events. */
+function summariseStepSources(output: unknown): {
+  playbooks: string[];
+  documents: string[];
+  knowledge_searches: string[];
+} {
+  const events =
+    output &&
+    typeof output === "object" &&
+    Array.isArray((output as { events?: unknown }).events)
+      ? ((output as { events: unknown[] }).events as Record<string, unknown>[])
+      : [];
+  const playbooks = new Set<string>();
+  const documents = new Set<string>();
+  const knowledgeSearches: string[] = [];
+  for (const ev of events) {
+    const type = ev.type as string | undefined;
+    if (type === "playbook_reviewed" && typeof ev.name === "string") {
+      playbooks.add(ev.name);
+    } else if (type === "playbook_listed" && Array.isArray(ev.names)) {
+      for (const n of ev.names as unknown[])
+        if (typeof n === "string") playbooks.add(n);
+    } else if (
+      (type === "doc_read" || type === "doc_find") &&
+      typeof ev.filename === "string"
+    ) {
+      documents.add(ev.filename);
+    } else if (type === "knowledge_search" && typeof ev.query === "string") {
+      const hits = typeof ev.hits === "number" ? ev.hits : 0;
+      knowledgeSearches.push(`${ev.query} (${hits})`);
+    }
+  }
+  return {
+    playbooks: [...playbooks],
+    documents: [...documents],
+    knowledge_searches: knowledgeSearches,
+  };
+}
 
 // POST /agents/:id/approve { plan? } — approve, optionally with edited steps.
 agentsRouter.post("/:id/approve", requireAuth, async (req, res) => {

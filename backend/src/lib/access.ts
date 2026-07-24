@@ -17,6 +17,7 @@ import {
     groupRoleForProject,
     listGroupAccessibleProjectIds,
 } from "./groupAccess";
+import { linksByDocument, listProjectIdsForDocument } from "./documentLinks";
 
 type Db = ReturnType<typeof createServerSupabase>;
 
@@ -110,20 +111,35 @@ export async function checkProjectAccess(
  * project-membership check via `shared_with`.
  */
 export async function ensureDocAccess(
-    doc: { user_id: string; project_id: string | null },
+    doc: { id?: string; user_id: string; project_id: string | null },
     userId: string,
     userEmail: string | null | undefined,
     db: Db,
 ): Promise<{ ok: true; isOwner: boolean } | { ok: false }> {
     if (doc.user_id === userId) return { ok: true, isOwner: true };
-    if (!doc.project_id) return { ok: false };
-    const access = await checkProjectAccess(
-        doc.project_id,
-        userId,
-        userEmail,
-        db,
-    );
-    if (access.ok) return { ok: true, isOwner: false };
+    if (doc.project_id) {
+        const access = await checkProjectAccess(
+            doc.project_id,
+            userId,
+            userEmail,
+            db,
+        );
+        if (access.ok) return { ok: true, isOwner: false };
+    }
+    // Central document management: a document linked into a project the user
+    // can access is readable (never owned). Covers Library docs (project_id
+    // null) published to student-group projects.
+    if (doc.id) {
+        const linkedProjectIds = await listProjectIdsForDocument(db, doc.id);
+        if (linkedProjectIds.length > 0) {
+            const accessible = new Set(
+                await listAccessibleProjectIds(userId, userEmail, db),
+            );
+            if (linkedProjectIds.some((pid) => accessible.has(pid))) {
+                return { ok: true, isOwner: false };
+            }
+        }
+    }
     return { ok: false };
 }
 
@@ -192,6 +208,12 @@ export async function filterAccessibleDocumentIds(
     const accessibleProjectIds = new Set(
         await listAccessibleProjectIds(userId, userEmail, db),
     );
+    // Central document management: docs linked into an accessible project are
+    // readable even if the doc's own project_id isn't (e.g. Library docs).
+    const linkMap = await linksByDocument(
+        db,
+        rows.map((d) => d.id),
+    );
     const allowed: string[] = [];
     for (const doc of rows) {
         if (doc.user_id === userId) {
@@ -199,6 +221,12 @@ export async function filterAccessibleDocumentIds(
         } else if (
             doc.project_id &&
             accessibleProjectIds.has(doc.project_id)
+        ) {
+            allowed.push(doc.id);
+        } else if (
+            (linkMap.get(doc.id) ?? []).some((pid) =>
+                accessibleProjectIds.has(pid),
+            )
         ) {
             allowed.push(doc.id);
         }

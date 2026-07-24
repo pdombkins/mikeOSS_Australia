@@ -2,6 +2,7 @@ import { createServerSupabase } from "../supabase";
 import {
   attachActiveVersionPaths,
 } from "../documentVersions";
+import { listLinkedDocumentIdsForProject } from "../documentLinks";
 import {
   type DocStore,
   type DocIndex,
@@ -447,13 +448,14 @@ export async function buildProjectDocContext(
   const docIndex: DocIndex = {};
   const docStore: DocStore = new Map();
 
-  const [{ data: docs }, { data: folders }] = await Promise.all([
+  const [{ data: docs }, linkedIds, { data: folders }] = await Promise.all([
     db
       .from("documents")
       .select("id, current_version_id, status, folder_id")
       .eq("project_id", projectId)
       .eq("status", "ready")
       .order("created_at", { ascending: true }),
+    listLinkedDocumentIdsForProject(db, projectId),
     db
       .from("project_subfolders")
       .select("id, name, parent_folder_id")
@@ -468,6 +470,30 @@ export async function buildProjectDocContext(
     folder_id?: string | null;
     storage_path?: string | null;
   }[];
+
+  // Central document management: append documents linked into this project
+  // (Library docs published here) so the project's assistant + agents can
+  // read them. Linked docs sit at the project root (folder_id null).
+  if (linkedIds.length > 0) {
+    const { data: linkedDocs } = await db
+      .from("documents")
+      .select("id, current_version_id, status, folder_id")
+      .in("id", linkedIds)
+      .eq("status", "ready");
+    const ownIds = new Set(docList.map((d) => d.id));
+    for (const ld of (linkedDocs ?? []) as unknown as {
+      id: string;
+      current_version_id?: string | null;
+      status?: string | null;
+    }[]) {
+      if (ownIds.has(ld.id)) continue;
+      docList.push({
+        id: ld.id,
+        current_version_id: ld.current_version_id ?? null,
+        folder_id: null,
+      });
+    }
+  }
   await attachActiveVersionPaths(db, docList);
 
   // Build folder id → full path map

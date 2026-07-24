@@ -36,6 +36,44 @@ import type { Document } from "@/app/components/shared/types";
 
 const ROLES = ["intake", "research", "drafting", "review", "verify"] as const;
 
+// Per-role reference (mirrors backend ROLE_TOOLSETS). Makes clear which roles
+// draw on playbooks / knowledge / documents before a run is approved.
+const ROLE_CAPABILITIES: Record<
+    (typeof ROLES)[number],
+    { blurb: string; playbooks: boolean; knowledge: boolean; documents: boolean }
+> = {
+    intake: {
+        blurb: "Characterises the matter, parties, jurisdiction and inputs.",
+        playbooks: false,
+        knowledge: false,
+        documents: true,
+    },
+    research: {
+        blurb: "Researches via the knowledge base, clauses, playbooks and Jade.io.",
+        playbooks: true,
+        knowledge: true,
+        documents: true,
+    },
+    drafting: {
+        blurb: "Produces or edits documents, consulting playbooks and clauses.",
+        playbooks: true,
+        knowledge: true,
+        documents: true,
+    },
+    review: {
+        blurb: "Reviews documents against your playbooks and AU law.",
+        playbooks: true,
+        knowledge: true,
+        documents: true,
+    },
+    verify: {
+        blurb: "Validates citations and checks they support assertions.",
+        playbooks: false,
+        knowledge: false,
+        documents: true,
+    },
+};
+
 const STATUS_STYLES: Record<string, string> = {
     planning: "bg-amber-100 text-amber-800",
     awaiting_approval: "bg-blue-100 text-blue-800",
@@ -67,6 +105,60 @@ function StepStatusIcon({ status }: { status: string }) {
     return <CircleDashed className="h-4 w-4 text-gray-300" />;
 }
 
+// Per-run transparency: what a step actually consulted.
+function StepSources({
+    sources,
+    role,
+}: {
+    sources?: import("@/app/lib/mikeApi").AgentStepSources;
+    role: string;
+}) {
+    const playbooks = sources?.playbooks ?? [];
+    const documents = sources?.documents ?? [];
+    const searches = sources?.knowledge_searches ?? [];
+    const canUsePlaybooks =
+        ROLE_CAPABILITIES[role as (typeof ROLES)[number]]?.playbooks;
+    if (
+        playbooks.length === 0 &&
+        documents.length === 0 &&
+        searches.length === 0
+    ) {
+        // Only note "no sources" for roles that could have used them.
+        if (!canUsePlaybooks) return null;
+        return (
+            <p className="mb-2 text-[11px] text-gray-400">
+                No playbooks or knowledge were consulted in this step.
+            </p>
+        );
+    }
+    const Row = ({ label, items }: { label: string; items: string[] }) =>
+        items.length === 0 ? null : (
+            <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    {label}
+                </span>
+                {items.map((it, i) => (
+                    <span
+                        key={`${label}-${i}`}
+                        className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700"
+                    >
+                        {it}
+                    </span>
+                ))}
+            </div>
+        );
+    return (
+        <div className="mb-3 space-y-1.5 rounded-lg bg-gray-50 p-2.5">
+            <p className="text-[11px] font-medium text-gray-500">
+                Sources used in this step
+            </p>
+            <Row label="Playbooks" items={playbooks} />
+            <Row label="Documents" items={documents} />
+            <Row label="Knowledge" items={searches} />
+        </div>
+    );
+}
+
 function AgentsPageInner() {
     const { user } = useAuth();
     const router = useRouter();
@@ -82,6 +174,7 @@ function AgentsPageInner() {
     const [docs, setDocs] = useState<Document[]>([]);
     const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
     const [draftFromPrecedent, setDraftFromPrecedent] = useState(false);
+    const [showRoleRef, setShowRoleRef] = useState(false);
 
     useEffect(() => {
         if (!showDocs || docs.length > 0) return;
@@ -328,6 +421,59 @@ function AgentsPageInner() {
                         results are ready.
                     </p>
                 </div>
+                {/* Per-role reference — what each agent role can draw on. */}
+                <div className="mb-4 rounded-xl border border-gray-200 bg-white">
+                    <button
+                        onClick={() => setShowRoleRef((v) => !v)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-gray-600"
+                    >
+                        {showRoleRef ? (
+                            <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                        ) : (
+                            <ChevronRight className="h-3.5 w-3.5 text-gray-400" />
+                        )}
+                        What each agent role uses
+                    </button>
+                    {showRoleRef && (
+                        <ul className="space-y-2 border-t border-gray-100 px-3 py-2.5">
+                            {ROLES.map((role) => {
+                                const cap = ROLE_CAPABILITIES[role];
+                                return (
+                                    <li key={role} className="text-[11px]">
+                                        <span className="font-semibold uppercase tracking-wider text-gray-500">
+                                            {role}
+                                        </span>
+                                        <p className="mt-0.5 text-gray-600">
+                                            {cap.blurb}
+                                        </p>
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                            {cap.playbooks && (
+                                                <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-indigo-700">
+                                                    Playbooks
+                                                </span>
+                                            )}
+                                            {cap.knowledge && (
+                                                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
+                                                    Knowledge base
+                                                </span>
+                                            )}
+                                            {cap.documents && (
+                                                <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-gray-600">
+                                                    Documents
+                                                </span>
+                                            )}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                            <li className="pt-1 text-[11px] text-gray-400">
+                                Expand any completed step to see exactly which
+                                playbooks and documents it relied on.
+                            </li>
+                        </ul>
+                    )}
+                </div>
+
                 <ul className="space-y-1.5">
                     {runs.map((r) => (
                         <li key={r.id}>
@@ -619,6 +765,10 @@ function AgentsPageInner() {
                                             </button>
                                             {open && (
                                                 <div className="border-t border-gray-100 px-4 py-3">
+                                                    <StepSources
+                                                        sources={s.sources}
+                                                        role={s.role}
+                                                    />
                                                     {s.output_text ? (
                                                         <pre className="max-h-96 overflow-auto whitespace-pre-wrap font-sans text-sm text-gray-700">
                                                             {s.output_text}
