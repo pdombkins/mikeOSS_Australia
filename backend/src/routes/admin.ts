@@ -439,7 +439,7 @@ adminRouter.get("/document-library", async (req, res) => {
   const [{ data: rawDocs }, { data: projects }] = await Promise.all([
     db
       .from("documents")
-      .select("id, user_id, library_kind, created_at")
+      .select("id, user_id, library_kind, created_at, current_version_id")
       .eq("user_id", adminId)
       .is("project_id", null)
       .order("created_at", { ascending: false }),
