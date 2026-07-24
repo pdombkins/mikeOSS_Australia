@@ -26,10 +26,13 @@ import {
     adminGetCosts,
     adminGetSettings,
     adminUpdateSettings,
+    adminGetProjectContexts,
+    adminSetProjectContext,
     type AdminUser,
     type AdminInvitation,
     type AdminCostTotals,
     type AdminCostLineItem,
+    type AdminProjectContext,
     MikeApiError,
 } from "@/app/lib/mikeApi";
 
@@ -86,6 +89,15 @@ export default function AdminPage() {
     const [orgContextSaved, setOrgContextSaved] = useState(false);
     const [savingJade, setSavingJade] = useState(false);
 
+    // Per-project organisational context
+    const [projectContexts, setProjectContexts] = useState<
+        AdminProjectContext[]
+    >([]);
+    const [selectedProjectId, setSelectedProjectId] = useState("");
+    const [projectContextText, setProjectContextText] = useState("");
+    const [projectContextSaving, setProjectContextSaving] = useState(false);
+    const [projectContextSaved, setProjectContextSaved] = useState(false);
+
     // Redirect if not admin
     useEffect(() => {
         if (!profileLoading && profile && !profile.isAdmin) {
@@ -96,17 +108,20 @@ export default function AdminPage() {
     const loadData = useCallback(async () => {
         setLoadingData(true);
         try {
-            const [usersData, invitationsData, settingsData] = await Promise.all([
-                adminListUsers(),
-                adminListInvitations(),
-                adminGetSettings(),
-            ]);
+            const [usersData, invitationsData, settingsData, projectCtx] =
+                await Promise.all([
+                    adminListUsers(),
+                    adminListInvitations(),
+                    adminGetSettings(),
+                    adminGetProjectContexts().catch(() => []),
+                ]);
             setUsers(usersData);
             setInvitations(invitationsData);
             setJadeApproved(settingsData.jadeAccessApproved);
             setOrgContext(
                 (settingsData as { orgContext?: string }).orgContext ?? "",
             );
+            setProjectContexts(projectCtx);
         } catch {
             // swallow — errors shown inline
         } finally {
@@ -189,6 +204,37 @@ export default function AdminPage() {
             setJadeApproved(previous); // revert on failure
         } finally {
             setSavingJade(false);
+        }
+    };
+
+    const handleSelectProjectForContext = (projectId: string) => {
+        setSelectedProjectId(projectId);
+        setProjectContextSaved(false);
+        const proj = projectContexts.find((p) => p.id === projectId);
+        setProjectContextText(proj?.context ?? "");
+    };
+
+    const handleSaveProjectContext = async () => {
+        if (!selectedProjectId || projectContextSaving) return;
+        setProjectContextSaving(true);
+        setProjectContextSaved(false);
+        try {
+            const updated = await adminSetProjectContext(
+                selectedProjectId,
+                projectContextText,
+            );
+            setProjectContexts((prev) =>
+                prev.map((p) =>
+                    p.id === updated.id
+                        ? { ...p, context: updated.context }
+                        : p,
+                ),
+            );
+            setProjectContextSaved(true);
+        } catch {
+            // swallow — best-effort
+        } finally {
+            setProjectContextSaving(false);
         }
     };
 
@@ -289,6 +335,58 @@ export default function AdminPage() {
                               ? "Saved"
                               : "Save context"}
                     </button>
+                </div>
+
+                {/* Per-project context */}
+                <div className="mb-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+                    <h2 className="mb-2 text-sm font-semibold text-gray-900">
+                        Per-project context
+                    </h2>
+                    <p className="mb-3 text-sm text-gray-500">
+                        A separate context for a specific project, injected into
+                        that project&apos;s chats and agent runs in addition to
+                        the organisation context above.
+                    </p>
+                    <select
+                        value={selectedProjectId}
+                        onChange={(e) =>
+                            handleSelectProjectForContext(e.target.value)
+                        }
+                        className="mb-3 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400"
+                    >
+                        <option value="">Select a project…</option>
+                        {projectContexts.map((p) => (
+                            <option key={p.id} value={p.id}>
+                                {p.name}
+                                {p.context?.trim() ? "  ✓" : ""}
+                            </option>
+                        ))}
+                    </select>
+                    {selectedProjectId && (
+                        <>
+                            <textarea
+                                value={projectContextText}
+                                onChange={(e) => {
+                                    setProjectContextText(e.target.value);
+                                    setProjectContextSaved(false);
+                                }}
+                                rows={4}
+                                placeholder="e.g. This matter is a mock M&A acquisition for teaching; NSW governing law; treat all parties as fictional…"
+                                className="w-full resize-y rounded-md border border-gray-200 p-3 text-sm outline-none focus:border-gray-400"
+                            />
+                            <button
+                                onClick={() => void handleSaveProjectContext()}
+                                disabled={projectContextSaving}
+                                className="mt-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                            >
+                                {projectContextSaving
+                                    ? "Saving…"
+                                    : projectContextSaved
+                                      ? "Saved"
+                                      : "Save project context"}
+                            </button>
+                        </>
+                    )}
                 </div>
 
                 {/* Legal research — citation verification source */}

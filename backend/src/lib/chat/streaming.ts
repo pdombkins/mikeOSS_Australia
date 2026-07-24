@@ -253,7 +253,7 @@ export async function runLLMStream(params: {
   // the caller composed it already, e.g. agent role prompts).
   if (!systemPrompt.includes("ORGANISATION / USER CONTEXT")) {
     try {
-      const orgContext = await getOrgContextForUser(userId, db);
+      const orgContext = await getOrgContextForUser(userId, db, projectId);
       if (orgContext) {
         systemPrompt += `\n\nORGANISATION / USER CONTEXT (apply where relevant to drafting, review and redlines):\n${orgContext}`;
       }

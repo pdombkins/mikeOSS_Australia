@@ -371,6 +371,31 @@ export async function adminSetDocumentLinks(
     });
 }
 
+// ── Per-project organisational context (Admin) ────────────────────────────
+export interface AdminProjectContext {
+    id: string;
+    name: string;
+    context: string | null;
+}
+
+export async function adminGetProjectContexts(): Promise<AdminProjectContext[]> {
+    const res = await apiRequest<{ projects: AdminProjectContext[] }>(
+        "/admin/project-contexts",
+    );
+    return res.projects;
+}
+
+export async function adminSetProjectContext(
+    projectId: string,
+    context: string,
+): Promise<AdminProjectContext> {
+    return apiRequest(`/admin/projects/${projectId}/context`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context }),
+    });
+}
+
 export interface UserLookupResult {
     exists: boolean;
     email: string;

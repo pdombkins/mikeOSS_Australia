@@ -108,7 +108,11 @@ async function executeRun(runId: string): Promise<void> {
 
     const apiKeys = await getUserApiKeys(run.owner_id, db);
     const model = resolveModel(run.model, DEFAULT_MAIN_MODEL);
-    const orgContext = await getOrgContextForUser(run.owner_id, db);
+    const orgContext = await getOrgContextForUser(
+        run.owner_id,
+        db,
+        run.project_id,
+    );
 
     // Shared doc context: input documents bound at creation.
     const docIds = Array.isArray(run.document_ids) ? run.document_ids : [];

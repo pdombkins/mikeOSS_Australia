@@ -422,6 +422,41 @@ adminRouter.get("/knowledge", async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Per-project organisational context (extends C033). Admins set a context
+// string per project; it's injected into that project's chat + agent prompts
+// alongside the global org context.
+//
+// GET /admin/project-contexts → [{ id, name, context }]
+// PUT /admin/projects/:id/context { context }
+// ---------------------------------------------------------------------------
+adminRouter.get("/project-contexts", async (_req, res) => {
+  const db = createServerSupabase();
+  const { data, error } = await db
+    .from("projects")
+    .select("id, name, context")
+    .order("name", { ascending: true });
+  if (error) return void res.status(500).json({ detail: error.message });
+  res.json({ projects: data ?? [] });
+});
+
+adminRouter.put("/projects/:id/context", async (req, res) => {
+  const db = createServerSupabase();
+  const context =
+    typeof req.body?.context === "string"
+      ? req.body.context.slice(0, 20_000)
+      : "";
+  const { data, error } = await db
+    .from("projects")
+    .update({ context: context.trim() ? context : null })
+    .eq("id", req.params.id)
+    .select("id, name, context")
+    .maybeSingle();
+  if (error) return void res.status(500).json({ detail: error.message });
+  if (!data) return void res.status(404).json({ detail: "Project not found" });
+  res.json(data);
+});
+
+// ---------------------------------------------------------------------------
 // Central document management — link the admin's Library documents to any
 // number of projects (live references, not copies). Powers the Admin →
 // Documents matrix (documents × projects checkboxes).
